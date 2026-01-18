@@ -1,0 +1,115 @@
+# Claude Progress Log
+
+## Project: Upwork Auto-Apply Pipeline
+Build a fully automated Upwork job application system with:
+- Job ingestion from Apify (2hr schedule) + Gmail alerts (real-time)
+- AI pre-filtering with Claude Sonnet
+- Deep extraction with Playwright + attachment handling
+- Proposal generation with Opus 4.5 + extended thinking
+- HeyGen video cover letter generation
+- Slack approval workflow with interactive buttons
+- Playwright auto-submission after approval
+
+---
+
+## Session 1 - 2026-01-18 (Initializer)
+
+### Completed
+- [x] Read app_spec.txt - comprehensive pipeline specification
+- [x] Created feature_list.json with 100 test cases covering:
+  - Phase 1: Foundation (sheets, deduplication, Gmail, pre-filter)
+  - Phase 2: Extraction & Generation (Playwright, attachments, video, PDF)
+  - Phase 3: Approval Flow (Slack messages, buttons, callbacks)
+  - Phase 4: Submission (Playwright form filling, auth)
+  - Phase 5: Polish (directive, scheduling, error handling)
+  - Cross-cutting: Performance, security, style
+- [x] Created init.sh setup script with:
+  - Python virtual environment setup
+  - Dependency installation
+  - Playwright browser installation
+  - Environment variable checks
+- [x] Initialized git repository
+- [x] Created project structure additions:
+  - .tmp/ directory for intermediate files
+  - .env.example template
+
+### Existing Infrastructure (Already Present)
+- `executions/` directory with:
+  - upwork_apify_scraper.py (needs source field modification)
+  - upwork_proposal_generator.py (needs attachment-aware updates)
+  - modal_webhook.py (needs new endpoints)
+  - Gmail utilities (gmail_auth.py, gmail_unified.py, etc.)
+  - Google Sheets utilities (read_sheet.py, update_sheet.py, append_to_sheet.py)
+- `directives/upwork_scrape_apply.md` - existing Upwork directive
+- `directives/Upwork Cover Letter Template Generator.docx.md` - template reference
+- requirements.txt with all dependencies
+
+### Key Decisions Made
+1. Use existing `executions/` directory (not `execution/` as in spec)
+2. Feature list covers 100 test cases (within 50-200 range)
+3. Test cases ordered by implementation phases
+4. All tests start with passes: false
+
+---
+
+## Next Steps for Session 2
+
+### Immediate Priority (Phase 1: Foundation)
+1. Create/verify Google Sheet structure:
+   - Feature #1: Upwork Job Pipeline sheet
+   - Feature #2: Upwork Processed IDs sheet
+
+2. Implement `upwork_deduplicator.py`:
+   - Features #3-5: Deduplication logic
+
+3. Implement `upwork_gmail_monitor.py`:
+   - Features #6-9: Gmail monitoring
+
+4. Implement `upwork_prefilter.py`:
+   - Features #10-14: AI pre-filtering
+
+### Scripts to Create (in order)
+- [ ] upwork_deduplicator.py
+- [ ] upwork_gmail_monitor.py
+- [ ] upwork_prefilter.py
+- [ ] upwork_deep_extractor.py
+- [ ] upwork_video_script_generator.py
+- [ ] upwork_heygen_video.py
+- [ ] upwork_deliverable_generator.py
+- [ ] upwork_boost_decider.py
+- [ ] upwork_slack_approval.py
+- [ ] upwork_submitter.py
+- [ ] upwork_pipeline_orchestrator.py
+
+### Scripts to Modify
+- [ ] upwork_apify_scraper.py (add source field)
+- [ ] upwork_proposal_generator.py (attachment-aware)
+- [ ] modal_webhook.py (add /upwork/* endpoints)
+
+### Environment Variables Needed
+```
+HEYGEN_API_KEY=xxx
+HEYGEN_AVATAR_ID=xxx
+SLACK_BOT_TOKEN=xoxb-xxx
+SLACK_SIGNING_SECRET=xxx
+SLACK_APPROVAL_CHANNEL=C0123456789
+UPWORK_PIPELINE_SHEET_ID=xxx
+UPWORK_PROCESSED_IDS_SHEET_ID=xxx
+PREFILTER_MIN_SCORE=70
+```
+
+---
+
+## Feature Status Summary
+- Total features: 100
+- Passing: 0
+- Failing: 100
+- Categories: functional (88), performance (5), security (5), style (4)
+
+---
+
+## Notes
+- Cost per job: ~$0.35-0.40 (pre-filter + proposal + video)
+- Pre-filter threshold: 70 (expect 20-30% jobs to pass)
+- Opus 4.5 model ID: claude-opus-4-5-20251101
+- Extended thinking budgets: 5000 tokens (cover letters), 8000 tokens (proposals), 3000 tokens (video scripts)

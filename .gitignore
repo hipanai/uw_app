@@ -1,0 +1,59 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+.tmp/*
+!.tmp/.gitkeep
+
+# Google OAuth tokens (contain sensitive data)
+token*.json
+*_token.json
+
+# Playwright
+playwright-report/
+test-results/
+.playwright/
+
+# Browser profiles (contain session data)
+browser_profile/
+user_data/
+
+# Logs
+*.log
+logs/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Test coverage
+.coverage
+htmlcov/

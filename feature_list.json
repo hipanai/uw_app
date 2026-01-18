@@ -1,0 +1,1301 @@
+[
+  {
+    "id": 1,
+    "category": "functional",
+    "description": "Google Sheet 'Upwork Job Pipeline' can be created with all required columns",
+    "steps": [
+      "Run sheet creation script",
+      "Verify job_id column exists as primary key",
+      "Verify source, status, title, url, description columns exist",
+      "Verify attachments (JSON), budget_type, budget_min, budget_max columns exist",
+      "Verify client_country, client_spent, client_hires, payment_verified columns exist",
+      "Verify fit_score, fit_reasoning, proposal_doc_url, proposal_text columns exist",
+      "Verify video_url, pdf_url, boost_decision, boost_reasoning columns exist",
+      "Verify pricing_proposed, slack_message_ts, approved_at, submitted_at, error_log columns exist"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 2,
+    "category": "functional",
+    "description": "Google Sheet 'Upwork Processed IDs' can be created for deduplication tracking",
+    "steps": [
+      "Run sheet creation script",
+      "Verify job_id column exists",
+      "Verify first_seen timestamp column exists",
+      "Verify source column exists"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 3,
+    "category": "functional",
+    "description": "Deduplicator can identify new jobs from Apify source",
+    "steps": [
+      "Add 5 sample jobs to Processed IDs sheet",
+      "Run deduplicator with 10 jobs (5 new, 5 existing)",
+      "Verify only 5 new jobs are returned",
+      "Verify all 10 jobs are now in Processed IDs sheet"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 4,
+    "category": "functional",
+    "description": "Deduplicator can identify new jobs from Gmail source",
+    "steps": [
+      "Add 3 sample jobs to Processed IDs sheet with source='gmail'",
+      "Run deduplicator with 6 jobs from Gmail (3 new, 3 existing)",
+      "Verify only 3 new jobs are returned",
+      "Verify source='gmail' is recorded for new jobs"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 5,
+    "category": "functional",
+    "description": "Deduplicator handles cross-source deduplication correctly",
+    "steps": [
+      "Add job_id='123' from Apify to Processed IDs",
+      "Run deduplicator with same job_id='123' from Gmail",
+      "Verify job is marked as duplicate (not returned)",
+      "Verify original source='apify' is preserved"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 6,
+    "category": "functional",
+    "description": "Gmail monitor can authenticate with Google account",
+    "steps": [
+      "Run Gmail authentication flow",
+      "Verify token.json is created",
+      "Verify token has gmail.readonly scope",
+      "Verify token refresh works after expiry"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 7,
+    "category": "functional",
+    "description": "Gmail monitor can detect Upwork alert emails",
+    "steps": [
+      "Send test Upwork alert email to monitored inbox",
+      "Run Gmail monitor script",
+      "Verify email is detected by subject pattern",
+      "Verify email body is extracted"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 8,
+    "category": "functional",
+    "description": "Gmail monitor can extract job URLs from Upwork alert emails",
+    "steps": [
+      "Process sample Upwork alert email with job link",
+      "Run URL extraction logic",
+      "Verify job URL is correctly parsed",
+      "Verify job ID is extracted from URL"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 9,
+    "category": "functional",
+    "description": "Gmail monitor handles multiple jobs in single alert email",
+    "steps": [
+      "Process Upwork digest email with 5 job links",
+      "Run URL extraction logic",
+      "Verify all 5 job URLs are extracted",
+      "Verify all 5 job IDs are unique"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 10,
+    "category": "functional",
+    "description": "Pre-filter can score a job using Claude Sonnet",
+    "steps": [
+      "Prepare sample job data with title, description, requirements",
+      "Run pre-filter script",
+      "Verify fit_score is returned (0-100)",
+      "Verify fit_reasoning is returned"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 11,
+    "category": "functional",
+    "description": "Pre-filter correctly identifies high-relevance AI/automation jobs",
+    "steps": [
+      "Process job posting for 'AI workflow automation specialist'",
+      "Run pre-filter scoring",
+      "Verify score >= 80",
+      "Verify reasoning mentions relevant skills match"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 12,
+    "category": "functional",
+    "description": "Pre-filter correctly identifies low-relevance non-AI jobs",
+    "steps": [
+      "Process job posting for 'Manual data entry clerk'",
+      "Run pre-filter scoring",
+      "Verify score < 50",
+      "Verify reasoning explains low relevance"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 13,
+    "category": "functional",
+    "description": "Pre-filter respects PREFILTER_MIN_SCORE threshold",
+    "steps": [
+      "Set PREFILTER_MIN_SCORE=70 in environment",
+      "Process batch of 10 jobs with varying scores",
+      "Verify only jobs with score >= 70 pass filter",
+      "Verify filtered-out jobs are logged with reasoning"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 14,
+    "category": "functional",
+    "description": "Pre-filter handles batch processing efficiently",
+    "steps": [
+      "Prepare batch of 20 sample jobs",
+      "Run pre-filter with parallel processing",
+      "Verify all 20 jobs are scored",
+      "Verify processing completes in reasonable time"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 15,
+    "category": "functional",
+    "description": "Deep extractor can fetch job page via Playwright",
+    "steps": [
+      "Provide valid Upwork job URL",
+      "Run deep extractor script",
+      "Verify job title is extracted",
+      "Verify job description is extracted",
+      "Verify client info is extracted"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 16,
+    "category": "functional",
+    "description": "Deep extractor can detect attachments on job posting",
+    "steps": [
+      "Process job with attached PDF requirement doc",
+      "Run deep extractor",
+      "Verify attachment is detected",
+      "Verify attachment filename is captured"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 17,
+    "category": "functional",
+    "description": "Deep extractor can download and parse PDF attachments",
+    "steps": [
+      "Process job with PDF attachment",
+      "Run attachment download logic",
+      "Verify PDF is saved to .tmp/ directory",
+      "Verify PDF text content is extracted",
+      "Verify extracted text is added to job requirements"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 18,
+    "category": "functional",
+    "description": "Deep extractor can download and parse DOC/DOCX attachments",
+    "steps": [
+      "Process job with DOCX attachment",
+      "Run attachment download logic",
+      "Verify DOCX is saved to .tmp/ directory",
+      "Verify document text content is extracted"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 19,
+    "category": "functional",
+    "description": "Deep extractor extracts budget information correctly",
+    "steps": [
+      "Process job with fixed-price budget of $500",
+      "Verify budget_type='fixed'",
+      "Verify budget_min=500",
+      "Verify budget_max=500"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 20,
+    "category": "functional",
+    "description": "Deep extractor extracts hourly rate range correctly",
+    "steps": [
+      "Process job with hourly rate $25-$50",
+      "Verify budget_type='hourly'",
+      "Verify budget_min=25",
+      "Verify budget_max=50"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 21,
+    "category": "functional",
+    "description": "Deep extractor handles jobs with no budget specified",
+    "steps": [
+      "Process job with 'Budget: Not specified'",
+      "Verify budget_type='unknown'",
+      "Verify budget_min and budget_max are null"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 22,
+    "category": "functional",
+    "description": "Deep extractor extracts client verification status",
+    "steps": [
+      "Process job from verified payment client",
+      "Verify payment_verified=true",
+      "Process job from unverified client",
+      "Verify payment_verified=false"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 23,
+    "category": "functional",
+    "description": "Deep extractor captures job snapshot screenshot",
+    "steps": [
+      "Process job URL with Playwright",
+      "Run screenshot capture function",
+      "Verify PNG file created in .tmp/ directory",
+      "Verify screenshot dimensions are 1920x1080"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 24,
+    "category": "functional",
+    "description": "Video script generator creates script following template structure",
+    "steps": [
+      "Provide job analysis with requirements and skills",
+      "Run video script generator",
+      "Verify script has opening section (references job details)",
+      "Verify script has experience section (1-2 portfolio examples)",
+      "Verify script has approach section (mentions tools)",
+      "Verify script has closing section (call invitation)"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 25,
+    "category": "functional",
+    "description": "Video script generator respects word count limits",
+    "steps": [
+      "Generate video script for sample job",
+      "Count words in output",
+      "Verify word count is between 200-250 words"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 26,
+    "category": "functional",
+    "description": "Video script generator excludes emojis from output",
+    "steps": [
+      "Generate video script for sample job",
+      "Scan output for emoji characters",
+      "Verify no emojis are present"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 27,
+    "category": "functional",
+    "description": "Video script generator only mentions industry when job specifies one",
+    "steps": [
+      "Generate script for job with industry='healthcare'",
+      "Verify script mentions healthcare",
+      "Generate script for job with no industry specified",
+      "Verify script does not mention any specific industry"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 28,
+    "category": "functional",
+    "description": "Video script generator uses Opus 4.5 with extended thinking",
+    "steps": [
+      "Run video script generator with API logging enabled",
+      "Verify API call uses model claude-opus-4-5-20251101",
+      "Verify thinking parameter is enabled",
+      "Verify budget_tokens >= 3000"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 29,
+    "category": "functional",
+    "description": "HeyGen integration can create video from script",
+    "steps": [
+      "Provide video script text",
+      "Provide job snapshot URL",
+      "Call HeyGen API to create video",
+      "Verify video_id is returned"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 30,
+    "category": "functional",
+    "description": "HeyGen integration can poll for video completion",
+    "steps": [
+      "Start video generation",
+      "Poll status endpoint until completion",
+      "Verify final status is 'completed'",
+      "Verify video_url is returned"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 31,
+    "category": "functional",
+    "description": "HeyGen video uses correct avatar ID from environment",
+    "steps": [
+      "Set HEYGEN_AVATAR_ID in environment",
+      "Run video generation",
+      "Verify API request includes correct avatar_id"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 32,
+    "category": "functional",
+    "description": "HeyGen video uses job snapshot as background",
+    "steps": [
+      "Generate job snapshot screenshot",
+      "Upload to cloud storage",
+      "Create HeyGen video with background parameter",
+      "Verify background.url matches uploaded screenshot"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 33,
+    "category": "functional",
+    "description": "Deliverable generator creates proposal Google Doc",
+    "steps": [
+      "Provide job data and analysis",
+      "Run deliverable generator",
+      "Verify Google Doc is created",
+      "Verify Doc URL is returned"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 34,
+    "category": "functional",
+    "description": "Deliverable generator creates PDF from proposal",
+    "steps": [
+      "Generate proposal content",
+      "Run PDF generation",
+      "Verify PDF file created in .tmp/",
+      "Verify PDF contains proposal text"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 35,
+    "category": "functional",
+    "description": "Deliverable generator uploads PDF to cloud storage",
+    "steps": [
+      "Generate proposal PDF",
+      "Upload to cloud storage",
+      "Verify public URL is returned",
+      "Verify URL is accessible"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 36,
+    "category": "functional",
+    "description": "Deliverable generator orchestrates video + doc + PDF creation",
+    "steps": [
+      "Provide complete job data",
+      "Run full deliverable generator",
+      "Verify proposal_doc_url is populated",
+      "Verify video_url is populated",
+      "Verify pdf_url is populated"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 37,
+    "category": "functional",
+    "description": "Proposal generator uses attachment content in generation",
+    "steps": [
+      "Process job with extracted attachment requirements",
+      "Run proposal generator",
+      "Verify proposal references specific requirements from attachment"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 38,
+    "category": "functional",
+    "description": "Proposal generator uses Opus 4.5 with extended thinking",
+    "steps": [
+      "Run proposal generator with API logging",
+      "Verify model is claude-opus-4-5-20251101",
+      "Verify thinking is enabled",
+      "Verify budget_tokens >= 8000"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 39,
+    "category": "functional",
+    "description": "Boost decider can analyze job quality signals",
+    "steps": [
+      "Provide job with high client_spent and many client_hires",
+      "Run boost decider",
+      "Verify boost_decision is returned (true/false)",
+      "Verify boost_reasoning explains decision"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 40,
+    "category": "functional",
+    "description": "Boost decider recommends boost for high-value clients",
+    "steps": [
+      "Provide job with client_spent > $10000",
+      "Provide job with payment_verified = true",
+      "Run boost decider",
+      "Verify boost_decision = true"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 41,
+    "category": "functional",
+    "description": "Boost decider does not recommend boost for new clients",
+    "steps": [
+      "Provide job with client_spent = $0",
+      "Provide job with client_hires = 0",
+      "Run boost decider",
+      "Verify boost_decision = false or qualified"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 42,
+    "category": "functional",
+    "description": "Slack approval can send message with job details",
+    "steps": [
+      "Configure SLACK_BOT_TOKEN and SLACK_APPROVAL_CHANNEL",
+      "Prepare job summary data",
+      "Send Slack approval message",
+      "Verify message appears in channel",
+      "Verify job title, budget, and fit score are displayed"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 43,
+    "category": "functional",
+    "description": "Slack approval message includes interactive buttons",
+    "steps": [
+      "Send Slack approval message",
+      "Verify Approve button is present",
+      "Verify Edit button is present",
+      "Verify Reject button is present"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 44,
+    "category": "functional",
+    "description": "Slack approval message includes proposal preview",
+    "steps": [
+      "Send Slack approval message with proposal text",
+      "Verify proposal text is visible in message",
+      "Verify proposal doc link is clickable"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 45,
+    "category": "functional",
+    "description": "Slack approval message includes video preview link",
+    "steps": [
+      "Send Slack approval message with video URL",
+      "Verify video link is present",
+      "Verify video link is clickable"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 46,
+    "category": "functional",
+    "description": "Slack approve button triggers submission workflow",
+    "steps": [
+      "Send approval message and capture message_ts",
+      "Click Approve button",
+      "Verify callback is received by webhook",
+      "Verify job status changes to 'approved'",
+      "Verify approved_at timestamp is set"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 47,
+    "category": "functional",
+    "description": "Slack reject button marks job as rejected",
+    "steps": [
+      "Send approval message",
+      "Click Reject button",
+      "Verify job status changes to 'rejected'",
+      "Verify message is updated to show rejection"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 48,
+    "category": "functional",
+    "description": "Slack edit button allows proposal modification",
+    "steps": [
+      "Send approval message",
+      "Click Edit button",
+      "Verify modal opens for editing",
+      "Make changes to proposal text",
+      "Submit changes",
+      "Verify proposal_text is updated in sheet"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 49,
+    "category": "functional",
+    "description": "Modal webhook handles /upwork/trigger endpoint",
+    "steps": [
+      "Deploy modal_webhook.py",
+      "Send POST request to /upwork/trigger",
+      "Verify pipeline orchestrator is invoked",
+      "Verify response indicates success"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 50,
+    "category": "functional",
+    "description": "Modal webhook handles /upwork/slack-action endpoint",
+    "steps": [
+      "Deploy modal_webhook.py",
+      "Send POST request to /upwork/slack-action with button payload",
+      "Verify request signature is validated",
+      "Verify appropriate action is taken"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 51,
+    "category": "functional",
+    "description": "Modal webhook handles /upwork/gmail-push endpoint",
+    "steps": [
+      "Deploy modal_webhook.py",
+      "Send POST request to /upwork/gmail-push with notification",
+      "Verify Gmail monitor is invoked",
+      "Verify new jobs are processed"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 52,
+    "category": "functional",
+    "description": "Playwright submitter can navigate to Upwork apply page",
+    "steps": [
+      "Provide job URL",
+      "Run Playwright submitter",
+      "Verify navigation to /nx/proposals/job/{id}/apply/",
+      "Verify apply form is visible"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 53,
+    "category": "functional",
+    "description": "Playwright submitter can fill cover letter field",
+    "steps": [
+      "Navigate to apply page",
+      "Locate cover letter textarea",
+      "Fill with proposal text",
+      "Verify text is entered correctly"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 54,
+    "category": "functional",
+    "description": "Playwright submitter can attach video file",
+    "steps": [
+      "Navigate to apply page",
+      "Locate attachment upload input",
+      "Upload video file",
+      "Verify attachment is added"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 55,
+    "category": "functional",
+    "description": "Playwright submitter can attach PDF file",
+    "steps": [
+      "Navigate to apply page",
+      "Locate attachment upload input",
+      "Upload PDF file",
+      "Verify attachment is added"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 56,
+    "category": "functional",
+    "description": "Playwright submitter can set proposed rate/price",
+    "steps": [
+      "Navigate to apply page",
+      "Locate rate/price input field",
+      "Enter pricing_proposed value",
+      "Verify amount is set correctly"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 57,
+    "category": "functional",
+    "description": "Playwright submitter can apply boost if recommended",
+    "steps": [
+      "Navigate to apply page with boost_decision=true",
+      "Locate boost checkbox/toggle",
+      "Enable boost",
+      "Verify boost is selected"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 58,
+    "category": "functional",
+    "description": "Playwright submitter can click submit button",
+    "steps": [
+      "Fill all required fields",
+      "Locate submit button",
+      "Click submit",
+      "Verify submission is initiated"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 59,
+    "category": "functional",
+    "description": "Playwright submitter detects successful submission",
+    "steps": [
+      "Complete and submit application",
+      "Wait for confirmation page/message",
+      "Verify success is detected",
+      "Update job status to 'submitted'"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 60,
+    "category": "functional",
+    "description": "Playwright submitter handles submission errors",
+    "steps": [
+      "Attempt submission with invalid data",
+      "Detect error message on page",
+      "Capture error text",
+      "Update error_log column in sheet"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 61,
+    "category": "functional",
+    "description": "Playwright submitter uses persistent browser profile",
+    "steps": [
+      "Configure user data directory for browser",
+      "Log into Upwork once manually",
+      "Run submitter with persistent profile",
+      "Verify no login required"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 62,
+    "category": "functional",
+    "description": "Pipeline orchestrator runs full pipeline in sequence",
+    "steps": [
+      "Trigger pipeline with test job",
+      "Verify Apify scrape executes",
+      "Verify deduplication executes",
+      "Verify pre-filter executes",
+      "Verify deep extraction executes",
+      "Verify deliverable generation executes",
+      "Verify Slack approval is sent"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 63,
+    "category": "functional",
+    "description": "Pipeline orchestrator handles Apify source correctly",
+    "steps": [
+      "Run pipeline triggered by Apify schedule",
+      "Verify jobs have source='apify'",
+      "Verify batch processing works"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 64,
+    "category": "functional",
+    "description": "Pipeline orchestrator handles Gmail source correctly",
+    "steps": [
+      "Run pipeline triggered by Gmail push",
+      "Verify jobs have source='gmail'",
+      "Verify real-time processing works"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 65,
+    "category": "functional",
+    "description": "Pipeline orchestrator skips jobs below pre-filter threshold",
+    "steps": [
+      "Process job with fit_score < 70",
+      "Verify deep extraction is NOT called",
+      "Verify job status is set to 'filtered_out'"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 66,
+    "category": "functional",
+    "description": "Pipeline orchestrator updates sheet status at each stage",
+    "steps": [
+      "Process job through pipeline",
+      "Verify status changes: new -> scoring -> extracting -> generating -> pending_approval",
+      "Check sheet after each stage"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 67,
+    "category": "functional",
+    "description": "Pipeline orchestrator handles errors gracefully",
+    "steps": [
+      "Simulate error in deep extraction",
+      "Verify error is caught",
+      "Verify error_log is populated",
+      "Verify pipeline continues with next job"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 68,
+    "category": "functional",
+    "description": "Directive upwork_auto_apply.md is created with correct YAML front matter",
+    "steps": [
+      "Create directive file",
+      "Verify name field is present",
+      "Verify description field is present",
+      "Verify scripts field lists all execution scripts"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 69,
+    "category": "functional",
+    "description": "All environment variables are documented and validated",
+    "steps": [
+      "Check .env.example or documentation",
+      "Verify HEYGEN_API_KEY is documented",
+      "Verify SLACK_BOT_TOKEN is documented",
+      "Verify all required vars have validation on startup"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 70,
+    "category": "functional",
+    "description": "Apify scraper adds source field to job data",
+    "steps": [
+      "Run upwork_apify_scraper.py",
+      "Verify each job has source='apify'",
+      "Verify field is present in output JSON"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 71,
+    "category": "functional",
+    "description": "Apify scraper supports batch processing",
+    "steps": [
+      "Run scraper with --limit 100",
+      "Verify all jobs are processed",
+      "Verify output JSON contains all jobs"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 72,
+    "category": "functional",
+    "description": "End-to-end test: Job flows from Apify to Slack approval",
+    "steps": [
+      "Trigger Apify scrape for 1 job",
+      "Wait for deduplication",
+      "Wait for pre-filter (expect pass)",
+      "Wait for deep extraction",
+      "Wait for deliverable generation",
+      "Verify Slack message received",
+      "Verify all fields populated in sheet"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 73,
+    "category": "functional",
+    "description": "End-to-end test: Job flows from Gmail to Slack approval",
+    "steps": [
+      "Send Upwork alert email to monitored inbox",
+      "Wait for Gmail push notification",
+      "Wait for pipeline processing",
+      "Verify Slack message received",
+      "Verify source='gmail' in sheet"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 74,
+    "category": "functional",
+    "description": "End-to-end test: Approval triggers submission",
+    "steps": [
+      "Have job in pending_approval status",
+      "Click Approve in Slack",
+      "Wait for Playwright submission",
+      "Verify status changes to 'submitted'",
+      "Verify submitted_at timestamp is set"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 75,
+    "category": "performance",
+    "description": "Pre-filter processes 50 jobs within 2 minutes",
+    "steps": [
+      "Prepare batch of 50 jobs",
+      "Run pre-filter with timing",
+      "Verify all jobs processed",
+      "Verify total time < 2 minutes"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 76,
+    "category": "performance",
+    "description": "Parallel API calls work correctly with 5 workers",
+    "steps": [
+      "Configure 5 parallel workers",
+      "Process 10 jobs",
+      "Verify no race conditions",
+      "Verify all jobs completed"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 77,
+    "category": "performance",
+    "description": "Google Docs API uses semaphore to avoid SSL errors",
+    "steps": [
+      "Generate 10 proposal docs in parallel",
+      "Verify semaphore limits concurrent calls",
+      "Verify no SSL errors occur",
+      "Verify all docs created"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 78,
+    "category": "performance",
+    "description": "HeyGen video polling has timeout protection",
+    "steps": [
+      "Start video generation",
+      "Set max poll timeout to 5 minutes",
+      "Simulate slow video generation",
+      "Verify timeout is triggered after limit"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 79,
+    "category": "performance",
+    "description": "Sheet operations use batch updates where possible",
+    "steps": [
+      "Update 20 jobs in sheet",
+      "Verify batch API is used",
+      "Verify fewer than 20 API calls made"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 80,
+    "category": "security",
+    "description": "Slack webhook validates request signature",
+    "steps": [
+      "Send request with valid signature",
+      "Verify request is processed",
+      "Send request with invalid signature",
+      "Verify request is rejected with 401"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 81,
+    "category": "security",
+    "description": "API keys are not logged or exposed",
+    "steps": [
+      "Run pipeline with verbose logging",
+      "Check logs for API keys",
+      "Verify no secrets are visible",
+      "Verify .env is in .gitignore"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 82,
+    "category": "security",
+    "description": "Playwright browser profile is stored securely",
+    "steps": [
+      "Check browser profile directory permissions",
+      "Verify session cookies are not exposed",
+      "Verify profile dir is in .gitignore"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 83,
+    "category": "security",
+    "description": "Google OAuth tokens are refreshed securely",
+    "steps": [
+      "Verify token refresh uses secure endpoint",
+      "Verify refresh token is stored securely",
+      "Verify old tokens are invalidated"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 84,
+    "category": "security",
+    "description": "Job attachments are scanned for malicious content",
+    "steps": [
+      "Download job attachment",
+      "Run basic security checks",
+      "Verify no executable content",
+      "Verify file type matches extension"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 85,
+    "category": "style",
+    "description": "Slack messages use consistent formatting",
+    "steps": [
+      "Send multiple approval messages",
+      "Verify consistent header format",
+      "Verify consistent button layout",
+      "Verify consistent color scheme"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 86,
+    "category": "style",
+    "description": "Slack messages display fit score with color coding",
+    "steps": [
+      "Send message for job with score 90",
+      "Verify green color indicator",
+      "Send message for job with score 72",
+      "Verify yellow color indicator"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 87,
+    "category": "style",
+    "description": "Error messages are user-friendly",
+    "steps": [
+      "Trigger various error conditions",
+      "Verify error messages are clear",
+      "Verify error messages suggest next steps"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 88,
+    "category": "style",
+    "description": "Progress logging is informative but not verbose",
+    "steps": [
+      "Run pipeline with default logging",
+      "Verify key milestones are logged",
+      "Verify no excessive debug output"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 89,
+    "category": "functional",
+    "description": "Cover letter follows above-the-fold format (~35 words)",
+    "steps": [
+      "Generate cover letter for job",
+      "Count words in cover letter",
+      "Verify word count is approximately 35 words",
+      "Verify format matches template"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 90,
+    "category": "functional",
+    "description": "Cover letter includes proposal doc link",
+    "steps": [
+      "Generate cover letter with proposal doc",
+      "Verify link is included",
+      "Verify link is valid Google Doc URL"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 91,
+    "category": "functional",
+    "description": "Proposal doc follows conversational format",
+    "steps": [
+      "Generate proposal for job",
+      "Verify greeting uses contact name if available",
+      "Verify 'My proposed approach' section exists",
+      "Verify 'What you'll get' section exists",
+      "Verify 'Timeline' section exists"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 92,
+    "category": "functional",
+    "description": "Contact name discovery works from job description",
+    "steps": [
+      "Process job with signature 'Thanks, John'",
+      "Run contact discovery",
+      "Verify contact_name='John'",
+      "Verify contact_confidence='high'"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 93,
+    "category": "functional",
+    "description": "Contact name uses hedged greeting for medium confidence",
+    "steps": [
+      "Process job with inferred contact name",
+      "Verify contact_confidence='medium'",
+      "Verify proposal uses 'Hey [Name] (if I have the right person)'"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 94,
+    "category": "functional",
+    "description": "Modal scheduled function runs every 2 hours",
+    "steps": [
+      "Configure Modal schedule",
+      "Verify cron expression is correct",
+      "Verify function triggers on schedule"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 95,
+    "category": "functional",
+    "description": "Gmail push notifications are configured correctly",
+    "steps": [
+      "Set up Gmail push notification subscription",
+      "Verify webhook URL is registered",
+      "Verify notifications are received"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 96,
+    "category": "functional",
+    "description": "Retry logic with exponential backoff for Google Docs",
+    "steps": [
+      "Simulate API failure on first attempt",
+      "Verify retry occurs after 1.5 seconds",
+      "Verify second retry after 3 seconds",
+      "Verify max 4 retries"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 97,
+    "category": "functional",
+    "description": "Pipeline handles Anthropic rate limits gracefully",
+    "steps": [
+      "Trigger rate limit condition",
+      "Verify backoff is applied",
+      "Verify processing resumes after cooldown"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 98,
+    "category": "functional",
+    "description": "Job URL format conversion works correctly",
+    "steps": [
+      "Input job URL: https://www.upwork.com/jobs/~123",
+      "Convert to apply URL",
+      "Verify output: https://www.upwork.com/nx/proposals/job/~123/apply/"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 99,
+    "category": "functional",
+    "description": "Cost tracking per job is calculated correctly",
+    "steps": [
+      "Process job through full pipeline",
+      "Track API costs for pre-filter",
+      "Track API costs for proposal generation",
+      "Track HeyGen video cost",
+      "Verify total is approximately $0.35-0.40"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 100,
+    "category": "functional",
+    "description": "Pipeline respects 20-30% throughput after pre-filter",
+    "steps": [
+      "Process batch of 100 jobs",
+      "Count jobs that pass pre-filter",
+      "Verify approximately 20-30 jobs pass",
+      "Verify full processing cost is minimized"
+    ],
+    "passes": false,
+    "priority": "medium"
+  }
+]

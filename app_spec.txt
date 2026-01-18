@@ -1,0 +1,329 @@
+# Upwork Auto-Apply Pipeline - Implementation Plan
+
+## Overview
+
+Build a fully automated Upwork job application system that:
+1. Ingests jobs from Apify (every 2hrs) + Gmail alerts (real-time)
+2. Deduplicates across sources
+3. AI pre-filters for relevance (saves tokens/time)
+4. Extracts deep requirements including attachments
+5. Generates proposals + HeyGen videos + PDFs
+6. Sends Slack approval requests with approve/reject buttons
+7. Auto-submits via Playwright after approval
+
+---
+
+## Architecture
+
+```
+Apify (2hr) + Gmail (real-time)
+           │
+           ▼
+    Deduplication (Google Sheet)
+           │
+           ▼
+    AI Pre-Filter (Sonnet - cheap)
+           │ score > 70
+           ▼
+    Deep Extraction (attachments, pricing)
+           │
+           ▼
+    Deliverable Gen (Proposal Doc, PDF, HeyGen Video)
+           │
+           ▼
+    Proposal Gen (Opus 4.5 + extended thinking)
+           │
+           ▼
+    Boost Decision (AI-based)
+           │
+           ▼
+    Slack Approval [Approve][Edit][Reject]
+           │ approved
+           ▼
+    Playwright Submission
+```
+
+---
+
+## Data Storage
+
+**Google Sheet: `Upwork Job Pipeline`**
+- job_id (primary key), source, status, title, url, description
+- attachments (JSON), budget_type, budget_min, budget_max
+- client_country, client_spent, client_hires, payment_verified
+- fit_score, fit_reasoning, proposal_doc_url, proposal_text
+- video_url, pdf_url, boost_decision, boost_reasoning
+- pricing_proposed, slack_message_ts, approved_at, submitted_at, error_log
+
+**Google Sheet: `Upwork Processed IDs`** (deduplication tracking)
+- job_id, first_seen, source
+
+---
+
+## New Scripts to Create
+
+| Script | Purpose |
+|--------|---------|
+| `upwork_gmail_monitor.py` | Poll Gmail for Upwork alert emails, extract job URLs |
+| `upwork_deduplicator.py` | Merge sources, track processed IDs, return only new jobs |
+| `upwork_prefilter.py` | AI scoring (0-100) using Sonnet for cost efficiency |
+| `upwork_deep_extractor.py` | Playwright fetch, download attachments, extract requirements |
+| `upwork_video_script_generator.py` | Generate video cover letter scripts following template |
+| `upwork_heygen_video.py` | Capture job snapshot, call HeyGen API, return video URL |
+| `upwork_deliverable_generator.py` | Create proposal docs, PDFs (orchestrates video + doc generation) |
+| `upwork_boost_decider.py` | AI decision on boost based on job quality signals |
+| `upwork_slack_approval.py` | Send interactive Slack messages, handle button callbacks |
+| `upwork_submitter.py` | Playwright browser automation to fill and submit Upwork forms |
+| `upwork_pipeline_orchestrator.py` | Main script that runs full pipeline in sequence |
+
+---
+
+## Existing Scripts to Modify
+
+| Script | Changes |
+|--------|---------|
+| `upwork_apify_scraper.py` | Add `source: "apify"` field, batch processing support |
+| `upwork_proposal_generator.py` | Accept pre-extracted data, attachment-aware generation |
+| `modal_webhook.py` | Add endpoints: `/upwork/trigger`, `/upwork/slack-action`, `/upwork/gmail-push` |
+
+---
+
+## New Directive
+
+Create `directives/upwork_auto_apply.md` with YAML front matter listing all scripts.
+
+---
+
+## Environment Variables to Add
+
+```
+HEYGEN_API_KEY=xxx
+HEYGEN_AVATAR_ID=xxx
+SLACK_BOT_TOKEN=xoxb-xxx
+SLACK_SIGNING_SECRET=xxx
+SLACK_APPROVAL_CHANNEL=C0123456789
+UPWORK_PIPELINE_SHEET_ID=xxx
+UPWORK_PROCESSED_IDS_SHEET_ID=xxx
+PREFILTER_MIN_SCORE=70
+```
+
+---
+
+## Implementation Order
+
+### Phase 1: Foundation
+1. Create Google Sheet structure (Pipeline + Processed IDs)
+2. `upwork_deduplicator.py` - dedup logic with Sheet tracking
+3. `upwork_gmail_monitor.py` - parse Upwork email alerts
+4. `upwork_prefilter.py` - Sonnet-based scoring
+
+### Phase 2: Extraction & Generation
+5. `upwork_deep_extractor.py` - Playwright scrape + attachment handling
+6. Modify `upwork_proposal_generator.py` for pipeline integration
+7. `upwork_deliverable_generator.py` - PDF + HeyGen video
+
+### Phase 3: Approval Flow
+8. `upwork_slack_approval.py` - interactive messages
+9. Add Slack webhook handler to `modal_webhook.py`
+10. `upwork_boost_decider.py` - boost logic
+
+### Phase 4: Submission
+11. `upwork_submitter.py` - Playwright form submission
+12. Handle Upwork auth (persistent browser profile)
+13. `upwork_pipeline_orchestrator.py` - tie it all together
+
+### Phase 5: Polish
+14. Create `directives/upwork_auto_apply.md`
+15. Set up scheduling (Modal or Windows Task Scheduler)
+16. Error handling, monitoring, logging
+
+---
+
+## Cost Per Job
+
+| Component | Cost |
+|-----------|------|
+| Pre-filter (Sonnet) | ~$0.003 |
+| Proposal (Opus 4.5) | ~$0.15 |
+| HeyGen video | ~$0.20 |
+| **Total** | **~$0.35-0.40** |
+
+Pre-filtering at 70+ score threshold means only ~20-30% of jobs reach full processing.
+
+---
+
+## HeyGen Video Cover Letter Generation
+
+The HeyGen video is a **video cover letter** - an introduction and explanation of the proposal spoken by an AI avatar. The script follows the cover letter template in `directives/Upwork Cover Letter Template Generator.docx.md`.
+
+### Video Script Structure (60-90 seconds)
+
+```
+1. OPENING (10-15 sec)
+   - Reference specific details from job posting
+   - Show you understand their needs
+   - Mention quantitative results from your experience that mirror their requirements
+
+2. RELEVANT EXPERIENCE (20-30 sec)
+   - 1-2 specific portfolio examples that directly address their requirements
+   - Focus on results and outcomes achieved
+   - Portfolio areas to draw from:
+     * AI video generation
+     * Automated email outreach
+     * AI voice and chat assistants/chatbots
+     * Automated lead generation
+     * Social media automation
+     * Data scraping and management
+     * Invoice/proposal automation
+     * Data analysis and visualization
+
+3. APPROACH (15-20 sec)
+   - How you would approach their project
+   - Mention relevant tools: Zapier, Make.com, Airtable, n8n, OpenAI/LLMs, etc.
+
+4. CLOSING (10-15 sec)
+   - Invite to a 10-minute call
+   - State availability (12 noon - 6pm Eastern)
+   - Sign off as Clyde
+```
+
+### Script Generation Rules
+
+- 200-250 words max (translates to ~60-90 second video)
+- Professional but conversational tone
+- NO emojis or icons
+- First two sentences must be MOST impactful
+- Only mention industry experience if job posting specifies an industry
+- Only include 1-2 most relevant portfolio highlights
+- NO time estimates for project completion
+- Use keywords from job posting naturally throughout
+
+### New Script: `upwork_video_script_generator.py`
+
+```python
+def generate_video_script(job: dict, job_analysis: dict) -> str:
+    """Generate HeyGen video script based on job analysis."""
+
+    prompt = f"""Generate a 60-90 second video cover letter script for this Upwork job.
+
+JOB ANALYSIS:
+- Core requirements: {job_analysis['requirements']}
+- Project goals: {job_analysis['goals']}
+- Skills mentioned: {job_analysis['skills']}
+- Industry: {job_analysis.get('industry', 'Not specified')}
+
+PROFILE:
+- Name: Clyde
+- Experience: ~4 years AI, many more with automation
+- Tools: Zapier, Make.com, Airtable, n8n, ChatGPT/OpenAI, Instantly, Apollo.io
+- Availability: 12 noon - 6pm Eastern US time
+- Portfolio: AI video gen, email outreach, chatbots, lead gen, social media automation, data scraping, invoice automation, data analysis
+
+SCRIPT STRUCTURE:
+1. Opening (10-15 sec): Reference their specific needs + your relevant results
+2. Experience (20-30 sec): 1-2 portfolio examples matching their requirements
+3. Approach (15-20 sec): How you'd tackle the project with specific tools
+4. Closing (10-15 sec): Invite to 10-min call, state availability, sign off
+
+RULES:
+- 200-250 words max
+- Professional but conversational
+- NO emojis
+- First 2 sentences = most impactful
+- Only mention industry if job specifies one
+- NO time estimates
+- Use their keywords naturally
+
+Return ONLY the script text, ready to be spoken."""
+
+    # Use Opus 4.5 with extended thinking for quality
+    response = anthropic_client.messages.create(
+        model="claude-opus-4-5-20251101",
+        max_tokens=1000,
+        thinking={"type": "enabled", "budget_tokens": 3000},
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return extract_text(response)
+```
+
+### HeyGen API Integration
+
+```python
+def create_heygen_video(script: str, job_snapshot_url: str) -> str:
+    """Create HeyGen video with script and job overlay."""
+
+    response = requests.post(
+        "https://api.heygen.com/v2/video/generate",
+        headers={"X-Api-Key": os.environ["HEYGEN_API_KEY"]},
+        json={
+            "video_inputs": [{
+                "character": {
+                    "type": "avatar",
+                    "avatar_id": os.environ["HEYGEN_AVATAR_ID"]
+                },
+                "voice": {
+                    "type": "text",
+                    "input_text": script
+                },
+                "background": {
+                    "type": "image",
+                    "url": job_snapshot_url  # Screenshot of job listing
+                }
+            }],
+            "dimension": {"width": 1920, "height": 1080}
+        }
+    )
+
+    video_id = response.json()["data"]["video_id"]
+
+    # Poll for completion
+    while True:
+        status = get_video_status(video_id)
+        if status["status"] == "completed":
+            return status["video_url"]
+        time.sleep(10)
+```
+
+### Job Snapshot Generation
+
+Before calling HeyGen, capture a screenshot of the job listing to use as background overlay:
+
+```python
+def capture_job_snapshot(job_url: str) -> str:
+    """Capture screenshot of job listing for video background."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1920, "height": 1080})
+        page.goto(job_url)
+
+        # Wait for content to load
+        page.wait_for_selector('[data-test="job-description"]')
+
+        # Take screenshot
+        screenshot_path = f".tmp/job_snapshot_{job_id}.png"
+        page.screenshot(path=screenshot_path)
+
+        # Upload to cloud storage and return URL
+        return upload_to_storage(screenshot_path)
+```
+
+---
+
+## Key Technical Decisions
+
+1. **Deduplication**: Google Sheets (fits existing pattern, no new infra)
+2. **Pre-filter model**: Sonnet 3.5 (10x cheaper than Opus, fast enough for scoring)
+3. **Video Script**: Opus 4.5 with extended thinking (quality matters for video)
+4. **Video Generation**: HeyGen API with job snapshot as background overlay
+5. **Submission**: Playwright with persistent browser profile (avoids re-login)
+6. **Approval**: Slack interactive buttons (real-time, mobile-friendly)
+7. **Scheduling**: Modal scheduled functions (or Windows Task Scheduler locally)
+
+---
+
+## Verification
+
+1. **Unit test each script** with sample job data
+2. **End-to-end test** with a real Upwork job (don't submit - stop at approval)
+3. **Test submission** with a real job you'd apply to anyway
+4. **Monitor first 10 auto-submissions** closely before trusting fully
