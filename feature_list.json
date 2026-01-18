@@ -78,7 +78,7 @@
       "Verify token has gmail.readonly scope",
       "Verify token refresh works after expiry"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -91,7 +91,7 @@
       "Verify email is detected by subject pattern",
       "Verify email body is extracted"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -104,7 +104,7 @@
       "Verify job URL is correctly parsed",
       "Verify job ID is extracted from URL"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -117,7 +117,7 @@
       "Verify all 5 job URLs are extracted",
       "Verify all 5 job IDs are unique"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
