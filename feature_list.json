@@ -13,7 +13,7 @@
       "Verify video_url, pdf_url, boost_decision, boost_reasoning columns exist",
       "Verify pricing_proposed, slack_message_ts, approved_at, submitted_at, error_log columns exist"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -26,7 +26,7 @@
       "Verify first_seen timestamp column exists",
       "Verify source column exists"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -39,7 +39,7 @@
       "Verify only 5 new jobs are returned",
       "Verify all 10 jobs are now in Processed IDs sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -52,7 +52,7 @@
       "Verify only 3 new jobs are returned",
       "Verify source='gmail' is recorded for new jobs"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -65,7 +65,7 @@
       "Verify job is marked as duplicate (not returned)",
       "Verify original source='apify' is preserved"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {

@@ -52,24 +52,46 @@ Build a fully automated Upwork job application system with:
 
 ---
 
-## Next Steps for Session 2
+## Session 2 - 2026-01-18 (Coding Agent)
 
-### Immediate Priority (Phase 1: Foundation)
-1. Create/verify Google Sheet structure:
-   - Feature #1: Upwork Job Pipeline sheet
-   - Feature #2: Upwork Processed IDs sheet
+### Completed
+- [x] Set up Python environment (installed pip, gspread, anthropic, etc.)
+- [x] Feature #1: Created `upwork_sheets_setup.py` with Pipeline sheet column definitions
+  - 29 columns covering job data, client info, proposals, approvals, submissions
+  - Verified against spec with unit tests (13 tests passing)
+- [x] Feature #2: Created Processed IDs sheet column definitions
+  - 3 columns: job_id, first_seen, source
+- [x] Features #3-5: Implemented `upwork_deduplicator.py`
+  - Supports both local file storage (for testing) and Google Sheets (for production)
+  - Cross-source deduplication (Apify + Gmail)
+  - Batch processing with in-batch duplicate detection
+  - CLI interface with --check-id, --add-id, --stats options
+  - 13 comprehensive tests passing
 
-2. Implement `upwork_deduplicator.py`:
-   - Features #3-5: Deduplication logic
+### New Scripts Created
+- `executions/upwork_sheets_setup.py` - Sheet creation and verification
+- `executions/test_upwork_sheets_setup.py` - Unit tests for column definitions
+- `executions/upwork_deduplicator.py` - Job deduplication logic
+- `executions/test_upwork_deduplicator.py` - Unit tests for deduplication
 
-3. Implement `upwork_gmail_monitor.py`:
+### Tests Run
+- Sheet column tests: 13/13 passing
+- Deduplicator tests: 13/13 passing
+
+---
+
+## Next Steps for Session 3
+
+### Immediate Priority (Continue Phase 1: Foundation)
+1. Implement `upwork_gmail_monitor.py`:
    - Features #6-9: Gmail monitoring
 
-4. Implement `upwork_prefilter.py`:
-   - Features #10-14: AI pre-filtering
+2. Implement `upwork_prefilter.py`:
+   - Features #10-14: AI pre-filtering with Sonnet
 
 ### Scripts to Create (in order)
-- [ ] upwork_deduplicator.py
+- [x] upwork_sheets_setup.py (done)
+- [x] upwork_deduplicator.py (done)
 - [ ] upwork_gmail_monitor.py
 - [ ] upwork_prefilter.py
 - [ ] upwork_deep_extractor.py
@@ -102,8 +124,8 @@ PREFILTER_MIN_SCORE=70
 
 ## Feature Status Summary
 - Total features: 100
-- Passing: 0
-- Failing: 100
+- Passing: 5
+- Failing: 95
 - Categories: functional (88), performance (5), security (5), style (4)
 
 ---
