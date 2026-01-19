@@ -941,9 +941,9 @@ async def api_trigger_pipeline(
                     "--limit", str(request.limit),
                     "-o", str(output_file)
                 ]
-                # Add optional filters
+                # Add optional filters (keywords passed as comma-separated for server-side Apify filtering)
                 if request.keywords:
-                    cmd.extend(["--keyword", request.keywords])
+                    cmd.extend(["--keywords", request.keywords])
                 if request.location:
                     # Location filter not supported by scraper yet, log it
                     logger.info(f"Location filter requested: {request.location} (not yet implemented in scraper)")

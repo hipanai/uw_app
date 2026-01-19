@@ -27,8 +27,25 @@ def scrape_upwork_jobs(
     limit: int = 50,
     from_date: str = None,
     to_date: str = None,
+    keywords: list[str] = None,
+    min_fixed: float = None,
+    max_fixed: float = None,
+    min_hourly: float = None,
+    max_hourly: float = None,
+    payment_verified: bool = False,
 ) -> list[dict]:
-    """Scrape Upwork jobs using Apify actor (free tier filters only).
+    """Scrape Upwork jobs using Apify actor.
+
+    Args:
+        limit: Maximum number of jobs to fetch
+        from_date: Jobs posted after this date (YYYY-MM-DD)
+        to_date: Jobs posted before this date (YYYY-MM-DD)
+        keywords: List of keywords to search for (matches title, description, skills)
+        min_fixed: Minimum fixed price budget
+        max_fixed: Maximum fixed price budget
+        min_hourly: Minimum hourly rate
+        max_hourly: Maximum hourly rate
+        payment_verified: Only include clients with verified payment
 
     Note: If the actor returns no results, check the Apify console and clear
     any saved category filters in the actor's Input configuration.
@@ -42,19 +59,40 @@ def scrape_upwork_jobs(
     # Use clean=1 to ignore saved default input from Apify console
     run_url = f"https://api.apify.com/v2/acts/{actor_id}/runs?token={api_token}&clean=1"
 
-    # Build input - only include the parameters we actually want
+    # Build input following the actor's JSON schema
     input_data = {"limit": limit}
+
+    # Date filters
     if from_date:
         input_data["fromDate"] = from_date
     if to_date:
         input_data["toDate"] = to_date
 
+    # Keyword filtering - search in title, description, and skills
+    if keywords:
+        input_data["includeKeywords.keywords"] = keywords
+        input_data["includeKeywords.matchTitle"] = True
+        input_data["includeKeywords.matchDescription"] = True
+        input_data["includeKeywords.matchSkills"] = True
+
+    # Budget filters
+    if min_fixed is not None:
+        input_data["budget.fixedPrice.min"] = str(min_fixed)
+    if max_fixed is not None:
+        input_data["budget.fixedPrice.max"] = str(max_fixed)
+    if min_hourly is not None:
+        input_data["budget.hourlyRate.min"] = str(min_hourly)
+    if max_hourly is not None:
+        input_data["budget.hourlyRate.max"] = str(max_hourly)
+
+    # Client filters
+    if payment_verified:
+        input_data["client.paymentMethodVerified"] = True
+
     print(f"Scraping Upwork jobs (limit: {limit})")
-    print(f"  Input: {input_data}")
-    if from_date:
-        print(f"  From: {from_date}")
-    if to_date:
-        print(f"  To: {to_date}")
+    print(f"  Input: {json.dumps(input_data, indent=2)}")
+    if keywords:
+        print(f"  Keywords: {keywords}")
 
     # Start the actor run
     response = requests.post(run_url, json=input_data)
@@ -227,14 +265,15 @@ def format_job(job: dict) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Scrape Upwork jobs via Apify")
 
-    # Apify filters (free tier)
+    # Apify filters (server-side)
     parser.add_argument("--limit", "-l", type=int, default=50, help="Max jobs to fetch")
     parser.add_argument("--days", "-d", type=int, help="Only jobs from last N days")
     parser.add_argument("--from-date", help="Jobs posted after (YYYY-MM-DD)")
     parser.add_argument("--to-date", help="Jobs posted before (YYYY-MM-DD)")
+    parser.add_argument("--keywords", help="Keywords for Apify search (comma-separated, server-side filter)")
 
-    # Post-scrape filters
-    parser.add_argument("--keyword", "-k", help="Filter by keyword in title/description")
+    # Post-scrape filters (client-side)
+    parser.add_argument("--keyword", "-k", help="Filter by keyword in title/description (client-side)")
     parser.add_argument("--min-hourly", type=float, help="Minimum hourly rate")
     parser.add_argument("--max-hourly", type=float, help="Maximum hourly rate")
     parser.add_argument("--min-fixed", type=float, help="Minimum fixed price")
@@ -256,11 +295,22 @@ def main():
     if args.days:
         from_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
 
+    # Parse keywords for server-side filtering
+    keywords_list = None
+    if args.keywords:
+        keywords_list = [k.strip() for k in args.keywords.split(',') if k.strip()]
+
     # Scrape jobs
     jobs = scrape_upwork_jobs(
         limit=args.limit,
         from_date=from_date,
         to_date=to_date,
+        keywords=keywords_list,
+        min_fixed=args.min_fixed,
+        max_fixed=args.max_fixed,
+        min_hourly=args.min_hourly,
+        max_hourly=args.max_hourly,
+        payment_verified=args.verified_payment,
     )
 
     # Apply post-scrape filters
