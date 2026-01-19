@@ -108,24 +108,24 @@ export function Dashboard() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {jobs.map((job) => (
-                <tr key={job.job_id} className="hover:bg-gray-50 cursor-pointer">
+              {jobs.map((job, idx) => (
+                <tr key={job.job_id || idx} className="hover:bg-gray-50 cursor-pointer">
                   <td className="px-4 py-3 text-sm text-gray-500">
-                    {job.job_id.slice(0, 10)}...
+                    {job.job_id ? `${String(job.job_id).slice(0, 10)}...` : 'N/A'}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <a
-                      href={job.url}
+                      href={job.url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline"
                     >
-                      {truncateText(job.title, 50)}
+                      {truncateText(job.title || 'Untitled', 50)}
                     </a>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 text-xs rounded-full ${STATUS_COLORS[job.status]}`}>
-                      {STATUS_LABELS[job.status]}
+                    <span className={`px-2 py-1 text-xs rounded-full ${STATUS_COLORS[job.status] || 'bg-gray-100 text-gray-800'}`}>
+                      {STATUS_LABELS[job.status] || job.status || 'Unknown'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -137,7 +137,7 @@ export function Dashboard() {
                     {formatBudget(job.budget_type, job.budget_min, job.budget_max)}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500 capitalize">
-                    {job.source}
+                    {job.source || 'unknown'}
                   </td>
                 </tr>
               ))}

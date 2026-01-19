@@ -340,6 +340,115 @@ def update_job_in_sheet(job_id: str, updates: Dict[str, Any]) -> bool:
         logger.error(f"Failed to update job {job_id}: {e}")
         return False
 
+def add_jobs_to_sheet(jobs: List[Dict]) -> int:
+    """Add new jobs to Google Sheet, skipping duplicates.
+
+    Args:
+        jobs: List of job dicts from scraper (with id, title, description, etc.)
+
+    Returns:
+        Number of jobs added
+    """
+    if not UPWORK_PIPELINE_SHEET_ID:
+        logger.error("UPWORK_PIPELINE_SHEET_ID not set")
+        return 0
+
+    client = get_sheets_client()
+    if not client:
+        logger.error("Could not get sheets client")
+        return 0
+
+    try:
+        spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+
+        # Get existing job IDs to avoid duplicates
+        existing_ids = set(worksheet.col_values(1)[1:])  # Skip header
+
+        # Get headers
+        headers = worksheet.row_values(1)
+
+        now = datetime.now(timezone.utc).isoformat()
+        added_count = 0
+        rows_to_add = []
+
+        for job in jobs:
+            job_id = str(job.get('id', ''))
+            if not job_id or job_id in existing_ids:
+                continue
+
+            # Parse budget
+            budget_raw = job.get('budget_raw', {})
+            hourly = budget_raw.get('hourlyRate', {})
+            fixed = budget_raw.get('fixedBudget')
+
+            if fixed:
+                budget_type = 'fixed'
+                budget_min = fixed
+                budget_max = fixed
+            elif hourly.get('min') or hourly.get('max'):
+                budget_type = 'hourly'
+                budget_min = hourly.get('min')
+                budget_max = hourly.get('max')
+            else:
+                budget_type = 'unknown'
+                budget_min = None
+                budget_max = None
+
+            client_data = job.get('client', {})
+
+            # Map job data to sheet columns
+            row_data = {
+                'job_id': job_id,
+                'source': job.get('source', 'apify'),
+                'status': 'new',
+                'title': job.get('title', '')[:500],  # Truncate long titles
+                'url': job.get('url', ''),
+                'description': job.get('description', '')[:5000],  # Truncate long descriptions
+                'attachments': '',
+                'budget_type': budget_type,
+                'budget_min': budget_min or '',
+                'budget_max': budget_max or '',
+                'client_country': client_data.get('country', ''),
+                'client_spent': client_data.get('total_spent', ''),
+                'client_hires': client_data.get('total_hires', ''),
+                'payment_verified': str(client_data.get('payment_verified', False)).lower(),
+                'fit_score': '',
+                'fit_reasoning': '',
+                'proposal_doc_url': '',
+                'proposal_text': '',
+                'video_url': '',
+                'pdf_url': '',
+                'boost_decision': '',
+                'boost_reasoning': '',
+                'pricing_proposed': '',
+                'slack_message_ts': '',
+                'approved_at': '',
+                'submitted_at': '',
+                'error_log': '',
+                'created_at': now,
+                'updated_at': now,
+            }
+
+            # Build row in column order
+            row = []
+            for col in headers:
+                row.append(row_data.get(col, ''))
+
+            rows_to_add.append(row)
+            existing_ids.add(job_id)  # Prevent duplicates within batch
+            added_count += 1
+
+        # Batch add all new rows
+        if rows_to_add:
+            worksheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
+            logger.info(f"Added {added_count} jobs to sheet")
+
+        return added_count
+    except Exception as e:
+        logger.error(f"Failed to add jobs to sheet: {e}")
+        return 0
+
 # ============================================================================
 # PIPELINE STATUS TRACKING
 # ============================================================================
@@ -767,57 +876,94 @@ async def api_trigger_pipeline(
     run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     PIPELINE_STATUS["is_running"] = True
     PIPELINE_STATUS["current_run_id"] = run_id
+    PIPELINE_STATUS["last_run_time"] = datetime.now(timezone.utc).isoformat()
+    PIPELINE_STATUS["last_run_status"] = "running"
 
     logger.info(f"Pipeline triggered: source={request.source}, limit={request.limit}, keywords={request.keywords}, location={request.location}, run_id={run_id}")
 
-    # Run pipeline in background (simplified - in production use background task)
-    try:
-        if request.source == "apify":
-            # Run the Upwork scrape pipeline
-            cmd = [
-                sys.executable, "executions/upwork_apify_scraper.py",
-                "--limit", str(request.limit),
-                "-o", ".tmp/ui_triggered_jobs.json"
-            ]
-            # Add optional filters
-            if request.keywords:
-                cmd.extend(["--keywords", request.keywords])
-            if request.location:
-                cmd.extend(["--location", request.location])
-        else:
-            # Gmail source
-            cmd = [
-                sys.executable, "executions/gmail_unified.py",
-                "--check-upwork-alerts"
-            ]
+    # Run pipeline in background thread
+    import threading
 
-        # Start subprocess (non-blocking for now)
-        subprocess.Popen(
-            cmd,
-            cwd=str(Path(__file__).parent.parent),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
+    def run_pipeline():
+        output_file = Path(__file__).parent.parent / ".tmp" / "ui_triggered_jobs.json"
+        jobs_added = 0
 
-        PIPELINE_STATUS["last_run_time"] = datetime.now(timezone.utc).isoformat()
-        PIPELINE_STATUS["last_run_status"] = "running"
+        try:
+            if request.source == "apify":
+                # Run the Upwork scrape pipeline
+                cmd = [
+                    sys.executable, "executions/upwork_apify_scraper.py",
+                    "--limit", str(request.limit),
+                    "-o", str(output_file)
+                ]
+                # Add optional filters
+                if request.keywords:
+                    cmd.extend(["--keyword", request.keywords])
+                if request.location:
+                    # Location filter not supported by scraper yet, log it
+                    logger.info(f"Location filter requested: {request.location} (not yet implemented in scraper)")
 
-        # In a real implementation, we'd track the process and update status when done
-        # For now, just mark as success after starting
-        import threading
-        def mark_complete():
-            import time
-            time.sleep(5)
-            PIPELINE_STATUS["is_running"] = False
+                logger.info(f"Running command: {' '.join(cmd)}")
+
+                # Run synchronously and wait for completion
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(Path(__file__).parent.parent),
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"Scraper failed: {result.stderr}")
+                    PIPELINE_STATUS["last_run_status"] = "error"
+                    PIPELINE_STATUS["is_running"] = False
+                    return
+
+                logger.info(f"Scraper output: {result.stdout[-500:]}")
+
+                # Load scraped jobs and add to sheet
+                if output_file.exists():
+                    with open(output_file) as f:
+                        jobs = json.load(f)
+                    logger.info(f"Loaded {len(jobs)} jobs from scraper output")
+
+                    # Add jobs to Google Sheet
+                    jobs_added = add_jobs_to_sheet(jobs)
+                    logger.info(f"Added {jobs_added} new jobs to sheet")
+                else:
+                    logger.warning(f"Output file not found: {output_file}")
+
+            else:
+                # Gmail source
+                cmd = [
+                    sys.executable, "executions/gmail_unified.py",
+                    "--check-upwork-alerts"
+                ]
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(Path(__file__).parent.parent),
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                if result.returncode != 0:
+                    logger.error(f"Gmail check failed: {result.stderr}")
+
             PIPELINE_STATUS["last_run_status"] = "success"
+            PIPELINE_STATUS["jobs_processed_today"] += jobs_added
+            logger.info(f"Pipeline completed successfully. Jobs added: {jobs_added}")
 
-        threading.Thread(target=mark_complete, daemon=True).start()
+        except subprocess.TimeoutExpired:
+            logger.error("Pipeline timed out")
+            PIPELINE_STATUS["last_run_status"] = "error"
+        except Exception as e:
+            logger.error(f"Pipeline error: {e}")
+            PIPELINE_STATUS["last_run_status"] = "error"
+        finally:
+            PIPELINE_STATUS["is_running"] = False
 
-    except Exception as e:
-        PIPELINE_STATUS["is_running"] = False
-        PIPELINE_STATUS["last_run_status"] = "error"
-        logger.error(f"Pipeline trigger failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    threading.Thread(target=run_pipeline, daemon=True).start()
 
     return {
         "success": True,
@@ -827,6 +973,30 @@ async def api_trigger_pipeline(
         "keywords": request.keywords,
         "location": request.location
     }
+
+@app.post("/api/admin/pipeline/import")
+async def api_import_jobs(user: dict = Depends(get_current_user)):
+    """Import jobs from the last scraper output file to the sheet."""
+    output_file = Path(__file__).parent.parent / ".tmp" / "ui_triggered_jobs.json"
+
+    if not output_file.exists():
+        raise HTTPException(status_code=404, detail="No scraper output file found")
+
+    try:
+        with open(output_file) as f:
+            jobs = json.load(f)
+
+        jobs_added = add_jobs_to_sheet(jobs)
+
+        return {
+            "success": True,
+            "jobs_in_file": len(jobs),
+            "jobs_added": jobs_added,
+            "message": f"Imported {jobs_added} new jobs (skipped {len(jobs) - jobs_added} duplicates)"
+        }
+    except Exception as e:
+        logger.error(f"Import failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/pipeline/status")
 async def api_get_pipeline_status(user: dict = Depends(get_current_user)):
