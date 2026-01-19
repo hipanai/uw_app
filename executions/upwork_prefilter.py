@@ -40,14 +40,25 @@ PREFILTER_MODEL = "claude-sonnet-4-20250514"
 PROFILE = """
 Name: Clyde
 Experience: ~4 years AI/automation, many more years overall
+
+TARGET KEYWORDS (match ANY of these = high relevance):
+- AI & Automation: ai, automation, ai agents, chatbots, conversational ai, vibe coding
+- Video/Content: ai video, ai voice, faceless video, content creation, social media content, auto posting
+- Workflow Tools: n8n, make.com, zapier, airtable
+- Healthcare/Medical: emr, ehr, healthcare, medical scribe, medical coding, medical documentation
+- Recruiting: recruit, recruiting, hiring, talent acquisition
+- Lead Gen: lead generation, apollo, instantly, scraping, outreach
+
 Specialties:
 - AI workflow automation (Make.com, Zapier, n8n)
 - AI agents and chatbots (ChatGPT/OpenAI, Claude, custom)
 - Lead generation automation (Apollo.io, Instantly, scraping)
 - Data automation and pipelines
-- AI video generation
+- AI video generation (HeyGen, faceless videos)
 - Email automation and outreach
-- Social media automation
+- Social media automation and auto-posting
+- Healthcare/EMR automation and medical documentation
+- Recruiting automation and hiring workflows
 - Invoice/proposal automation
 - Data analysis and visualization
 
@@ -55,10 +66,10 @@ Tools: Zapier, Make.com, Airtable, n8n, Python, OpenAI/Anthropic APIs,
        Instantly, Apollo.io, HeyGen, Playwright, various APIs
 
 NOT a good fit for:
-- Manual data entry
+- Manual data entry (unless automatable)
 - Basic virtual assistant tasks
 - Graphic design (unless AI-powered)
-- Non-technical writing
+- Non-technical writing (unless AI content)
 - Customer support roles
 - Jobs requiring specific certifications or licenses
 - Jobs under $100 budget
@@ -76,20 +87,24 @@ Budget: {budget}
 Client Info: Spent ${client_spent}, {client_hires} hires, Payment verified: {payment_verified}
 
 SCORING CRITERIA:
-- Core skill match (0-40 points): Does the job require skills the freelancer has?
-- Project type fit (0-30 points): Is this the type of work the freelancer excels at?
-- Budget appropriateness (0-15 points): Is the budget reasonable for the work?
-- Client quality (0-15 points): Does the client have good hiring history?
+- Keyword match (0-50 points): Does the job mention ANY of the target keywords from the profile?
+  * If job mentions ai, automation, n8n, make.com, zapier, emr, healthcare, recruiting, content creation,
+    ai video, faceless video, or similar terms = HIGH score (40-50 points)
+  * Match on ANY single keyword is enough for high relevance
+- Project type fit (0-30 points): Could the freelancer's automation/AI skills apply to this work?
+- Budget appropriateness (0-10 points): Is the budget reasonable for the work?
+- Client quality (0-10 points): Does the client have good hiring history?
 
 RESPONSE FORMAT (JSON only, no markdown):
 {{"score": <0-100>, "reasoning": "<2-3 sentences explaining the score>"}}
 
-Important:
-- Score 80+ = Strong fit, proceed with proposal
-- Score 60-79 = Moderate fit, may be worth pursuing
-- Score 40-59 = Weak fit, likely not worth time
-- Score <40 = Poor fit, skip this job
-- Be strict: only high scores for genuinely good matches
+IMPORTANT SCORING GUIDANCE:
+- Score 80+ = Mentions ANY target keyword (ai, automation, n8n, zapier, make, emr, healthcare, recruiting, video, content)
+- Score 60-79 = Related to automation/AI but doesn't use exact keywords
+- Score 40-59 = Could potentially use automation but weak connection
+- Score <40 = No relevance to automation, AI, or target industries
+- BE GENEROUS: If the job mentions ANY target keyword, score it 70+
+- The goal is to INCLUDE relevant jobs, not exclude them
 """
 
 
