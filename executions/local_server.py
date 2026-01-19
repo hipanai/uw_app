@@ -903,6 +903,9 @@ async def api_trigger_pipeline(
                     "--parallel", "2",
                     "-o", str(output_file.with_suffix('.result.json'))
                 ]
+                # Add keywords if provided
+                if request.keywords:
+                    cmd.extend(["--keywords", request.keywords])
 
                 logger.info(f"Running command: {' '.join(cmd)}")
 

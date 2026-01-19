@@ -528,6 +528,7 @@ async def run_pipeline_async(
     source: str = 'apify',
     jobs: Optional[List[dict]] = None,
     limit: int = 10,
+    keywords: Optional[List[str]] = None,
     min_score: int = None,
     mock: bool = False,
     parallel: int = 3,
@@ -539,6 +540,7 @@ async def run_pipeline_async(
         source: Job source - 'apify', 'gmail', or 'manual'
         jobs: Pre-provided jobs (for manual source)
         limit: Max jobs to scrape from Apify
+        keywords: Keywords for Apify search (server-side filtering)
         min_score: Minimum pre-filter score (defaults to env var)
         mock: If True, don't make real API calls
         parallel: Number of parallel jobs for batch processing
@@ -581,7 +583,7 @@ async def run_pipeline_async(
                     for i in range(min(limit, 5))
                 ]
             else:
-                raw_jobs = scrape_upwork_jobs(limit=limit)
+                raw_jobs = scrape_upwork_jobs(limit=limit, keywords=keywords)
 
             # Add source field to each job
             for job in raw_jobs:
@@ -900,6 +902,7 @@ def run_pipeline_sync(
     source: str = 'apify',
     jobs: Optional[List[dict]] = None,
     limit: int = 10,
+    keywords: Optional[List[str]] = None,
     min_score: int = None,
     mock: bool = False,
     parallel: int = 3,
@@ -911,6 +914,7 @@ def run_pipeline_sync(
         source=source,
         jobs=jobs,
         limit=limit,
+        keywords=keywords,
         min_score=min_score,
         mock=mock,
         parallel=parallel,
@@ -925,6 +929,7 @@ def main():
     parser.add_argument("--jobs", help="JSON file with jobs (for manual source)")
     parser.add_argument("--limit", type=int, default=10,
                        help="Max jobs to scrape from Apify (default: 10)")
+    parser.add_argument("--keywords", help="Keywords for Apify search (comma-separated)")
     parser.add_argument("--min-score", type=int, help="Min pre-filter score (default: env var)")
     parser.add_argument("--parallel", type=int, default=3,
                        help="Parallel processing count (default: 3)")
@@ -942,6 +947,11 @@ def main():
         if args.source == "apify":
             args.source = "manual"
 
+    # Parse keywords
+    keywords = None
+    if args.keywords:
+        keywords = [k.strip() for k in args.keywords.split(',') if k.strip()]
+
     mock = args.test or args.mock
 
     # Run pipeline
@@ -949,6 +959,7 @@ def main():
         source=args.source,
         jobs=jobs,
         limit=args.limit,
+        keywords=keywords,
         min_score=args.min_score,
         mock=mock,
         parallel=args.parallel,
