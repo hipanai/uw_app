@@ -39,10 +39,10 @@ def scrape_upwork_jobs(
         raise ValueError("APIFY_API_TOKEN not found in environment")
 
     actor_id = "upwork-vibe~upwork-job-scraper"
-    run_url = f"https://api.apify.com/v2/acts/{actor_id}/runs?token={api_token}"
+    # Use clean=1 to ignore saved default input from Apify console
+    run_url = f"https://api.apify.com/v2/acts/{actor_id}/runs?token={api_token}&clean=1"
 
-    # Free tier only supports: limit, fromDate, toDate
-    # Category filters must be cleared in Apify console if needed
+    # Build input - only include the parameters we actually want
     input_data = {"limit": limit}
     if from_date:
         input_data["fromDate"] = from_date
@@ -50,6 +50,7 @@ def scrape_upwork_jobs(
         input_data["toDate"] = to_date
 
     print(f"Scraping Upwork jobs (limit: {limit})")
+    print(f"  Input: {input_data}")
     if from_date:
         print(f"  From: {from_date}")
     if to_date:
