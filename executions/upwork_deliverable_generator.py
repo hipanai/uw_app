@@ -25,7 +25,7 @@ import threading
 import logging
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 
 # Configure logging
@@ -887,11 +887,24 @@ async def generate_deliverables_async(
 
 
 async def generate_deliverables_batch_async(
-    jobs: List[JobData],
+    jobs: List[Union[JobData, Dict]],
     max_concurrent: int = 3,
     **kwargs
 ) -> List[DeliverableResult]:
-    """Generate deliverables for multiple jobs with concurrency control."""
+    """Generate deliverables for multiple jobs with concurrency control.
+
+    Args:
+        jobs: List of JobData objects or dicts (dicts will be converted to JobData)
+        max_concurrent: Maximum concurrent workers
+        **kwargs: Additional arguments passed to generate_deliverables_async
+    """
+    # Convert dicts to JobData if needed
+    job_data_list = []
+    for job in jobs:
+        if isinstance(job, dict):
+            job_data_list.append(JobData.from_dict(job))
+        else:
+            job_data_list.append(job)
 
     semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -899,7 +912,7 @@ async def generate_deliverables_batch_async(
         async with semaphore:
             return await generate_deliverables_async(job, **kwargs)
 
-    tasks = [process_with_semaphore(job) for job in jobs]
+    tasks = [process_with_semaphore(job) for job in job_data_list]
     return await asyncio.gather(*tasks)
 
 

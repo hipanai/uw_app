@@ -28,7 +28,7 @@ import hmac
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Union
 from pathlib import Path
 
 # Configure logging
@@ -1137,7 +1137,7 @@ def verify_slack_signature(
 
 
 def send_approval_message(
-    job: JobApprovalData,
+    job: Union[JobApprovalData, Dict],
     channel: Optional[str] = None,
     token: Optional[str] = None,
     mock: bool = False
@@ -1146,7 +1146,7 @@ def send_approval_message(
     Send an approval message for a job.
 
     Args:
-        job: Job approval data
+        job: Job approval data (JobApprovalData or dict, dict will be converted)
         channel: Slack channel ID (defaults to env var)
         token: Slack bot token (defaults to env var)
         mock: If True, don't actually send
@@ -1154,6 +1154,10 @@ def send_approval_message(
     Returns:
         SlackMessageResult with message_ts and color (Feature #86)
     """
+    # Convert dict to JobApprovalData if needed
+    if isinstance(job, dict):
+        job = JobApprovalData.from_dict(job)
+
     channel = channel or SLACK_APPROVAL_CHANNEL
     if not channel:
         return SlackMessageResult(
