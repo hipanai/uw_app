@@ -7,7 +7,9 @@
       "Bash(venv/Scripts/python.exe -m pip install:*)",
       "Bash(venv/Scripts/python.exe -c \"import sys; sys.path.insert\\(0, ''executions''\\); from upwork_cost_tracker import CostTracker; ct = CostTracker\\(\\); print\\(''CostTracker works!''\\); print\\(ct.get_total_cost\\(\\)\\)\")",
       "Bash(venv/Scripts/python.exe:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nComplete Upwork Auto-Apply Pipeline: All 100 features verified\n\n- All 100 features passing verification tests\n- Added test runner scripts for individual feature validation\n- Normalized line endings across codebase\n- Added Claude settings configuration\n\nPipeline components verified:\n- Sheet setup and deduplication \\(Features 1-5\\)\n- Gmail monitor for Upwork alerts \\(Features 6-9\\)\n- Pre-filter with AI scoring \\(Features 10-14\\)\n- Deep extraction with attachments \\(Features 15-30\\)\n- Proposal and deliverable generation \\(Features 31-50\\)\n- Slack approval workflow \\(Features 51-60\\)\n- Playwright submission \\(Features 61-70\\)\n- Error handling and retry logic \\(Features 71-80\\)\n- Security and logging \\(Features 81-90\\)\n- Performance and cost tracking \\(Features 91-100\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nUpdate Claude settings\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
