@@ -188,16 +188,16 @@ def verify_sheet(client, sheet_id, expected_columns, sheet_name):
         extra = [col for col in existing_headers if col not in expected_columns]
 
         if not missing:
-            print(f"✓ {sheet_name} has all required columns")
+            print(f"[OK] {sheet_name} has all required columns")
             if extra:
                 print(f"  Note: Extra columns found: {', '.join(extra)}")
             return True, missing, extra
         else:
-            print(f"✗ {sheet_name} is missing columns: {', '.join(missing)}")
+            print(f"[ERROR] {sheet_name} is missing columns: {', '.join(missing)}")
             return False, missing, extra
 
     except Exception as e:
-        print(f"✗ Error verifying {sheet_name}: {e}")
+        print(f"[ERROR] Error verifying {sheet_name}: {e}")
         return False, expected_columns, []
 
 
@@ -295,7 +295,7 @@ def main():
     print("Authenticating with Google...")
     creds = get_credentials()
     client = gspread.authorize(creds)
-    print("✓ Authentication successful\n")
+    print("[OK] Authentication successful\n")
 
     results = {}
 

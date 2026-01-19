@@ -370,9 +370,14 @@ class LoginRequest(BaseModel):
 class PipelineTriggerRequest(BaseModel):
     source: str = "apify"
     limit: int = 10
+    keywords: Optional[str] = None  # Comma-separated keywords to filter jobs
+    location: Optional[str] = None  # Location filter (e.g., "United States", "Remote")
 
 class ProposalUpdateRequest(BaseModel):
     proposal_text: str
+
+class ConfigUpdateRequest(BaseModel):
+    config: Dict[str, str]
 
 # ============================================================================
 # AUTH ENDPOINTS
@@ -595,37 +600,160 @@ async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
 # ADMIN ENDPOINTS
 # ============================================================================
 
+# Define config items with metadata
+CONFIG_ITEMS = [
+    {"key": "UPWORK_PIPELINE_SHEET_ID", "label": "Pipeline Sheet ID", "sensitive": False, "editable": True, "description": "Google Sheet ID for job pipeline"},
+    {"key": "UPWORK_PROCESSED_IDS_SHEET_ID", "label": "Processed IDs Sheet ID", "sensitive": False, "editable": True, "description": "Google Sheet ID for deduplication"},
+    {"key": "PREFILTER_MIN_SCORE", "label": "Min Pre-filter Score", "sensitive": False, "editable": True, "description": "Minimum score (0-100) to proceed with processing"},
+    {"key": "SLACK_BOT_TOKEN", "label": "Slack Bot Token", "sensitive": True, "editable": True, "description": "Slack bot token for notifications"},
+    {"key": "SLACK_APPROVAL_CHANNEL", "label": "Slack Approval Channel", "sensitive": False, "editable": True, "description": "Slack channel ID for approvals"},
+    {"key": "OPENAI_API_KEY", "label": "OpenAI API Key", "sensitive": True, "editable": True, "description": "OpenAI API key"},
+    {"key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "sensitive": True, "editable": True, "description": "Anthropic API key for Claude"},
+    {"key": "APIFY_API_TOKEN", "label": "Apify API Token", "sensitive": True, "editable": True, "description": "Apify token for web scraping"},
+    {"key": "HEYGEN_API_KEY", "label": "HeyGen API Key", "sensitive": True, "editable": True, "description": "HeyGen API key for video generation"},
+    {"key": "HEYGEN_AVATAR_ID", "label": "HeyGen Avatar ID", "sensitive": False, "editable": True, "description": "HeyGen avatar ID for videos"},
+    {"key": "UI_PASSWORD", "label": "UI Password", "sensitive": True, "editable": True, "description": "Password for web UI login"},
+    {"key": "JWT_SECRET", "label": "JWT Secret", "sensitive": True, "editable": False, "description": "Secret key for JWT tokens (auto-generated)"},
+]
+
+def read_env_file() -> Dict[str, str]:
+    """Read .env file and return key-value pairs."""
+    env_path = Path(__file__).parent.parent / ".env"
+    env_vars = {}
+
+    if env_path.exists():
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+                # Parse key=value
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
+
+    return env_vars
+
+def write_env_file(updates: Dict[str, str]) -> bool:
+    """Update .env file with new values, preserving comments and structure."""
+    env_path = Path(__file__).parent.parent / ".env"
+
+    if not env_path.exists():
+        return False
+
+    # Read existing file
+    with open(env_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    # Track which keys we've updated
+    updated_keys = set()
+    new_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Keep comments and empty lines as-is
+        if not stripped or stripped.startswith('#'):
+            new_lines.append(line)
+            continue
+
+        # Parse key=value
+        if '=' in stripped:
+            key = stripped.split('=', 1)[0].strip()
+            if key in updates:
+                # Replace with new value
+                new_lines.append(f"{key}={updates[key]}\n")
+                updated_keys.add(key)
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    # Add any new keys that weren't in the file
+    for key, value in updates.items():
+        if key not in updated_keys:
+            new_lines.append(f"{key}={value}\n")
+
+    # Write back
+    with open(env_path, 'w', encoding='utf-8') as f:
+        f.writelines(new_lines)
+
+    # Reload environment variables
+    for key, value in updates.items():
+        os.environ[key] = value
+
+    return True
+
 @app.get("/api/admin/config")
 async def api_get_config(user: dict = Depends(get_current_user)):
-    """Get configuration (sensitive values masked)."""
-    # List of env vars to show (with sensitive ones masked)
-    env_vars = [
-        "UPWORK_PIPELINE_SHEET_ID",
-        "UPWORK_PROCESSED_IDS_SHEET_ID",
-        "SLACK_BOT_TOKEN",
-        "SLACK_APPROVAL_CHANNEL",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "APIFY_API_TOKEN",
-        "UI_PASSWORD",
-        "JWT_SECRET"
-    ]
+    """Get configuration with metadata."""
+    # Read current values from .env file (not just os.environ)
+    env_values = read_env_file()
 
-    sensitive_keys = ["TOKEN", "KEY", "SECRET", "PASSWORD"]
+    config_items = []
+    for item in CONFIG_ITEMS:
+        key = item["key"]
+        raw_value = env_values.get(key) or os.getenv(key, "")
 
-    config = {}
-    for var in env_vars:
-        value = os.getenv(var)
-        if value:
-            # Mask sensitive values
-            if any(s in var.upper() for s in sensitive_keys):
-                config[var] = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
+        # Mask sensitive values for display
+        if item["sensitive"] and raw_value:
+            if len(raw_value) > 8:
+                display_value = raw_value[:4] + "****" + raw_value[-4:]
             else:
-                config[var] = value
+                display_value = "****"
         else:
-            config[var] = "(not set)"
+            display_value = raw_value or "(not set)"
 
-    return {"config": config}
+        config_items.append({
+            "key": key,
+            "label": item["label"],
+            "value": display_value,
+            "raw_value": raw_value if not item["sensitive"] else "",  # Only send raw for non-sensitive
+            "sensitive": item["sensitive"],
+            "editable": item["editable"],
+            "description": item["description"],
+            "is_set": bool(raw_value)
+        })
+
+    return {"config": config_items}
+
+@app.put("/api/admin/config")
+async def api_update_config(
+    request: ConfigUpdateRequest,
+    user: dict = Depends(get_current_user)
+):
+    """Update configuration values in .env file."""
+    # Validate that all keys are editable
+    editable_keys = {item["key"] for item in CONFIG_ITEMS if item["editable"]}
+
+    updates = {}
+    for key, value in request.config.items():
+        if key not in editable_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Config key '{key}' is not editable"
+            )
+        # Don't update if value is masked (unchanged sensitive field)
+        if "****" not in value:
+            updates[key] = value
+
+    if not updates:
+        return {"success": True, "message": "No changes to save", "updated": []}
+
+    # Write updates to .env file
+    success = write_env_file(updates)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update .env file")
+
+    logger.info(f"Config updated: {list(updates.keys())}")
+
+    return {
+        "success": True,
+        "message": f"Updated {len(updates)} config value(s)",
+        "updated": list(updates.keys())
+    }
 
 @app.post("/api/admin/pipeline/trigger")
 async def api_trigger_pipeline(
@@ -640,7 +768,7 @@ async def api_trigger_pipeline(
     PIPELINE_STATUS["is_running"] = True
     PIPELINE_STATUS["current_run_id"] = run_id
 
-    logger.info(f"Pipeline triggered: source={request.source}, limit={request.limit}, run_id={run_id}")
+    logger.info(f"Pipeline triggered: source={request.source}, limit={request.limit}, keywords={request.keywords}, location={request.location}, run_id={run_id}")
 
     # Run pipeline in background (simplified - in production use background task)
     try:
@@ -651,6 +779,11 @@ async def api_trigger_pipeline(
                 "--limit", str(request.limit),
                 "-o", ".tmp/ui_triggered_jobs.json"
             ]
+            # Add optional filters
+            if request.keywords:
+                cmd.extend(["--keywords", request.keywords])
+            if request.location:
+                cmd.extend(["--location", request.location])
         else:
             # Gmail source
             cmd = [
@@ -690,7 +823,9 @@ async def api_trigger_pipeline(
         "success": True,
         "run_id": run_id,
         "source": request.source,
-        "limit": request.limit
+        "limit": request.limit,
+        "keywords": request.keywords,
+        "location": request.location
     }
 
 @app.get("/api/admin/pipeline/status")

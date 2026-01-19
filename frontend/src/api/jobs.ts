@@ -9,6 +9,7 @@ import type {
   PipelineStatusResponse,
   HealthResponse,
   ConfigResponse,
+  ConfigUpdateResponse,
   LogsResponse,
   JobStatus,
 } from './types';
@@ -93,13 +94,24 @@ export const getConfig = async (): Promise<ConfigResponse> => {
   return response.data;
 };
 
+export const updateConfig = async (
+  config: Record<string, string>
+): Promise<ConfigUpdateResponse> => {
+  const response = await apiClient.put<ConfigUpdateResponse>('/admin/config', { config });
+  return response.data;
+};
+
 export const triggerPipeline = async (
   source: 'apify' | 'gmail',
-  limit?: number
+  limit?: number,
+  keywords?: string,
+  location?: string
 ): Promise<PipelineTriggerResponse> => {
   const response = await apiClient.post<PipelineTriggerResponse>('/admin/pipeline/trigger', {
     source,
     limit,
+    keywords: keywords || undefined,
+    location: location || undefined,
   });
   return response.data;
 };

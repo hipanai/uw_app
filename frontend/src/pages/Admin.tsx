@@ -2,23 +2,28 @@ import { useState, useEffect } from 'react';
 import {
   getHealth,
   getConfig,
+  updateConfig,
   getPipelineStatus,
   triggerPipeline,
   getLogs,
 } from '@/api/jobs';
-import type { HealthResponse, PipelineStatusResponse, LogEntry } from '@/api/types';
+import type { HealthResponse, PipelineStatusResponse, LogEntry, ConfigItem } from '@/api/types';
 import { LOG_LEVEL_COLORS } from '@/lib/constants';
 import { formatDate } from '@/lib/utils';
 
 export function Admin() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatusResponse | null>(null);
-  const [config, setConfig] = useState<Record<string, string> | null>(null);
+  const [configItems, setConfigItems] = useState<ConfigItem[]>([]);
+  const [editedConfig, setEditedConfig] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggerLoading, setTriggerLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
   const [triggerSource, setTriggerSource] = useState<'apify' | 'gmail'>('apify');
   const [triggerLimit, setTriggerLimit] = useState<number>(10);
+  const [triggerKeywords, setTriggerKeywords] = useState<string>('');
+  const [triggerLocation, setTriggerLocation] = useState<string>('');
   const [logLevel, setLogLevel] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -35,7 +40,13 @@ export function Admin() {
       ]);
       setHealth(healthRes);
       setPipelineStatus(statusRes);
-      setConfig(configRes.config);
+      setConfigItems(configRes.config);
+      // Initialize edited config with current values
+      const initialEdited: Record<string, string> = {};
+      configRes.config.forEach((item: ConfigItem) => {
+        initialEdited[item.key] = item.sensitive ? item.value : item.raw_value;
+      });
+      setEditedConfig(initialEdited);
       setLogs(logsRes.logs);
     } catch (err) {
       console.error('Failed to fetch admin data:', err);
@@ -43,6 +54,39 @@ export function Admin() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleConfigChange = (key: string, value: string) => {
+    setEditedConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveConfig = async () => {
+    setConfigSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await updateConfig(editedConfig);
+      setSuccess(result.message);
+      // Refresh config to get updated masked values
+      const configRes = await getConfig();
+      setConfigItems(configRes.config);
+      const newEdited: Record<string, string> = {};
+      configRes.config.forEach((item: ConfigItem) => {
+        newEdited[item.key] = item.sensitive ? item.value : item.raw_value;
+      });
+      setEditedConfig(newEdited);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save configuration');
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const hasConfigChanges = () => {
+    return configItems.some((item) => {
+      const originalValue = item.sensitive ? item.value : item.raw_value;
+      return editedConfig[item.key] !== originalValue;
+    });
   };
 
   useEffect(() => {
@@ -61,8 +105,16 @@ export function Admin() {
     setError(null);
     setSuccess(null);
     try {
-      const result = await triggerPipeline(triggerSource, triggerLimit);
-      setSuccess(`Pipeline triggered! Run ID: ${result.run_id}`);
+      const result = await triggerPipeline(
+        triggerSource,
+        triggerLimit,
+        triggerKeywords || undefined,
+        triggerLocation || undefined
+      );
+      let msg = `Pipeline triggered! Run ID: ${result.run_id}`;
+      if (triggerKeywords) msg += ` | Keywords: ${triggerKeywords}`;
+      if (triggerLocation) msg += ` | Location: ${triggerLocation}`;
+      setSuccess(msg);
       // Refresh status
       const status = await getPipelineStatus();
       setPipelineStatus(status);
@@ -199,13 +251,13 @@ export function Admin() {
           {/* Trigger Pipeline */}
           <div className="bg-white rounded-lg shadow p-4">
             <h2 className="text-lg font-semibold mb-4">Trigger Pipeline</h2>
-            <div className="flex flex-wrap gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
               <div>
                 <label className="block text-sm text-gray-500 mb-1">Source</label>
                 <select
                   value={triggerSource}
                   onChange={(e) => setTriggerSource(e.target.value as 'apify' | 'gmail')}
-                  className="px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="apify">Apify (Scrape New Jobs)</option>
                   <option value="gmail">Gmail (Process Alerts)</option>
@@ -219,9 +271,37 @@ export function Admin() {
                   onChange={(e) => setTriggerLimit(parseInt(e.target.value) || 10)}
                   min={1}
                   max={100}
-                  className="w-20 px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
+              <div>
+                <label className="block text-sm text-gray-500 mb-1">
+                  Keywords <span className="text-gray-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={triggerKeywords}
+                  onChange={(e) => setTriggerKeywords(e.target.value)}
+                  placeholder="e.g., python, react, automation"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 mb-1">
+                  Location <span className="text-gray-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={triggerLocation}
+                  onChange={(e) => setTriggerLocation(e.target.value)}
+                  placeholder="e.g., United States, Remote"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
               <button
                 onClick={handleTrigger}
                 disabled={triggerLoading || pipelineStatus?.is_running}
@@ -229,6 +309,11 @@ export function Admin() {
               >
                 {triggerLoading ? 'Triggering...' : 'Run Pipeline'}
               </button>
+              {triggerSource === 'gmail' && (
+                <p className="text-sm text-gray-500">
+                  Keywords and location filters only apply to Apify source
+                </p>
+              )}
             </div>
             {pipelineStatus?.is_running && (
               <p className="mt-2 text-sm text-yellow-600">
@@ -242,16 +327,53 @@ export function Admin() {
       {/* Config Tab */}
       {activeTab === 'config' && (
         <div className="bg-white rounded-lg shadow p-4">
-          <h2 className="text-lg font-semibold mb-4">Configuration</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Environment variables (sensitive values masked)
-          </p>
-          {config && (
-            <div className="divide-y">
-              {Object.entries(config).map(([key, value]) => (
-                <div key={key} className="py-2 flex justify-between">
-                  <span className="font-mono text-sm">{key}</span>
-                  <span className="text-gray-600 font-mono text-sm">{value}</span>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-lg font-semibold">Configuration</h2>
+              <p className="text-sm text-gray-500">
+                Edit environment variables. Sensitive values are masked.
+              </p>
+            </div>
+            <button
+              onClick={handleSaveConfig}
+              disabled={configSaving || !hasConfigChanges()}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {configSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+          {configItems.length > 0 && (
+            <div className="space-y-4">
+              {configItems.map((item) => (
+                <div key={item.key} className="border-b border-gray-100 pb-4">
+                  <div className="flex justify-between items-start mb-1">
+                    <label className="font-medium text-sm text-gray-700">
+                      {item.label}
+                      {item.sensitive && (
+                        <span className="ml-2 text-xs text-yellow-600 bg-yellow-50 px-1 rounded">
+                          Sensitive
+                        </span>
+                      )}
+                      {!item.editable && (
+                        <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-1 rounded">
+                          Read-only
+                        </span>
+                      )}
+                    </label>
+                    <span className={`text-xs ${item.is_set ? 'text-green-600' : 'text-red-500'}`}>
+                      {item.is_set ? 'Set' : 'Not Set'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-2">{item.description}</p>
+                  <input
+                    type={item.sensitive ? 'password' : 'text'}
+                    value={editedConfig[item.key] || ''}
+                    onChange={(e) => handleConfigChange(item.key, e.target.value)}
+                    disabled={!item.editable}
+                    placeholder={item.sensitive ? '••••••••' : '(not set)'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm disabled:bg-gray-50 disabled:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1 font-mono">{item.key}</p>
                 </div>
               ))}
             </div>

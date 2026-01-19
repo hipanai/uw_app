@@ -78,29 +78,43 @@ export interface PipelineTriggerResponse {
 }
 
 export interface PipelineStatusResponse {
-  running: boolean;
-  last_run: string | null;
-  last_result: {
-    jobs_processed: number;
-    jobs_approved: number;
-    errors: number;
-  } | null;
+  is_running: boolean;
+  last_run_time: string | null;
+  last_run_status: string | null;
+  current_run_id: string | null;
+  jobs_processed_today: number;
+  last_reset_date: string;
 }
 
 export interface HealthResponse {
-  sheets_connected: boolean;
-  slack_configured: boolean;
-  anthropic_configured: boolean;
-  heygen_configured: boolean;
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  services: {
+    sheets: boolean;
+    slack: boolean;
+    openai: boolean;
+  };
+  timestamp: string;
+}
+
+export interface ConfigItem {
+  key: string;
+  label: string;
+  value: string;
+  raw_value: string;
+  sensitive: boolean;
+  editable: boolean;
+  description: string;
+  is_set: boolean;
 }
 
 export interface ConfigResponse {
-  PREFILTER_MIN_SCORE: number;
-  UPWORK_PIPELINE_SHEET_ID: string;
-  UPWORK_PROCESSED_IDS_SHEET_ID: string;
-  ANTHROPIC_API_KEY: string;
-  HEYGEN_API_KEY: string;
-  SLACK_BOT_TOKEN: string;
+  config: ConfigItem[];
+}
+
+export interface ConfigUpdateResponse {
+  success: boolean;
+  message: string;
+  updated: string[];
 }
 
 export interface LogEntry {
