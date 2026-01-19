@@ -807,7 +807,7 @@ async def run_pipeline_async(
             job.status = PipelineStatus.BOOST_DECIDING
             update_job_in_sheet(job, mock=mock)
 
-        if BOOST_DECIDER_AVAILABLE:
+        if BOOST_DECIDER_AVAILABLE and ANTHROPIC_AVAILABLE:
             try:
                 job_dicts = [job.to_dict() for job in pipeline_jobs]
 
@@ -818,7 +818,9 @@ async def run_pipeline_async(
                         job.boost_reasoning = "Mock boost decision"
                         job.pricing_proposed = job.budget_max or job.budget_min or 100
                 else:
-                    boost_results = await decide_boost_batch_async(job_dicts, max_concurrent=parallel)
+                    # Create async anthropic client for boost decisions
+                    async_client = anthropic.AsyncAnthropic()
+                    boost_results = await decide_boost_batch_async(job_dicts, async_client, max_concurrent=parallel)
 
                     for job, boost in zip(pipeline_jobs, boost_results):
                         job.boost_decision = boost.boost_decision
@@ -835,6 +837,8 @@ async def run_pipeline_async(
                 logger.error(f"Boost decision error: {e}")
                 for job in pipeline_jobs:
                     job.error_log.append(f"Boost decision error: {str(e)}")
+        elif BOOST_DECIDER_AVAILABLE and not ANTHROPIC_AVAILABLE:
+            logger.warning("Boost decider available but anthropic not available")
         else:
             logger.warning("Boost decider not available")
 
