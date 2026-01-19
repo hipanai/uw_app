@@ -33,19 +33,21 @@ def scrape_upwork_jobs(
     min_hourly: float = None,
     max_hourly: float = None,
     payment_verified: bool = False,
+    days_back: int = 1,
 ) -> list[dict]:
     """Scrape Upwork jobs using Apify actor.
 
     Args:
         limit: Maximum number of jobs to fetch
-        from_date: Jobs posted after this date (YYYY-MM-DD)
-        to_date: Jobs posted before this date (YYYY-MM-DD)
+        from_date: Jobs posted after this date (YYYY-MM-DD), defaults to yesterday
+        to_date: Jobs posted before this date (YYYY-MM-DD), defaults to today
         keywords: List of keywords to search for (matches title, description, skills)
         min_fixed: Minimum fixed price budget
         max_fixed: Maximum fixed price budget
         min_hourly: Minimum hourly rate
         max_hourly: Maximum hourly rate
         payment_verified: Only include clients with verified payment
+        days_back: Default number of days to look back if no from_date specified (default: 1)
 
     Note: If the actor returns no results, check the Apify console and clear
     any saved category filters in the actor's Input configuration.
@@ -59,14 +61,18 @@ def scrape_upwork_jobs(
     # Use clean=1 to ignore saved default input from Apify console
     run_url = f"https://api.apify.com/v2/acts/{actor_id}/runs?token={api_token}&clean=1"
 
-    # Build input following the actor's JSON schema
-    input_data = {"limit": limit}
+    # Default to last 24 hours if no dates specified
+    if not from_date:
+        from_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+    if not to_date:
+        to_date = datetime.now().strftime('%Y-%m-%d')
 
-    # Date filters
-    if from_date:
-        input_data["fromDate"] = from_date
-    if to_date:
-        input_data["toDate"] = to_date
+    # Build input following the actor's JSON schema
+    input_data = {
+        "limit": limit,
+        "fromDate": from_date,
+        "toDate": to_date,
+    }
 
     # Keyword filtering - search in title, description, and skills
     if keywords:
