@@ -9,6 +9,23 @@ Endpoints:
   GET  /               - Server info
   POST /webhook/{slug} - Execute directive by slug
   GET  /webhooks       - List available webhooks
+
+  # Web UI API
+  POST /api/auth/login    - Login with password
+  GET  /api/auth/verify   - Verify JWT token
+  GET  /api/jobs          - List jobs with filters
+  GET  /api/jobs/stats    - Get job statistics
+  GET  /api/jobs/{job_id} - Get single job
+  GET  /api/approvals/pending       - List pending approvals
+  POST /api/approvals/{job_id}/approve - Approve job
+  POST /api/approvals/{job_id}/reject  - Reject job
+  PUT  /api/approvals/{job_id}/proposal - Update proposal
+  POST /api/approvals/{job_id}/submit   - Submit job
+  GET  /api/admin/config   - Get config
+  POST /api/admin/pipeline/trigger - Trigger pipeline
+  GET  /api/admin/pipeline/status  - Get pipeline status
+  GET  /api/admin/logs     - Get logs
+  GET  /api/admin/health   - Get health status
 """
 
 import os
@@ -16,12 +33,18 @@ import json
 import logging
 import subprocess
 import sys
+import secrets
+import re
 from pathlib import Path
-from typing import Optional
-from datetime import datetime
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass, asdict
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
@@ -32,10 +55,704 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("local-orchestrator")
 
+# Store logs in memory for the admin panel
+LOG_BUFFER: List[Dict] = []
+MAX_LOG_ENTRIES = 1000
+
+class LogHandler(logging.Handler):
+    """Custom log handler that stores logs in memory."""
+    def emit(self, record):
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name
+        }
+        LOG_BUFFER.append(log_entry)
+        if len(LOG_BUFFER) > MAX_LOG_ENTRIES:
+            LOG_BUFFER.pop(0)
+
+# Add custom handler to root logger
+logging.getLogger().addHandler(LogHandler())
+
 app = FastAPI(title="Claude Orchestrator (Local)", version="1.0")
 
+# CORS middleware for frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ============================================================================
-# TOOL IMPLEMENTATIONS
+# JWT AUTHENTICATION
+# ============================================================================
+
+# JWT settings
+UI_PASSWORD = os.getenv("UI_PASSWORD", "changeme")
+JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+# Simple JWT implementation (no external dependency)
+import base64
+import hmac
+import hashlib
+
+def base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode('ascii')
+
+def base64url_decode(data: str) -> bytes:
+    padding = 4 - len(data) % 4
+    if padding != 4:
+        data += '=' * padding
+    return base64.urlsafe_b64decode(data)
+
+def create_jwt(payload: dict) -> str:
+    """Create a simple JWT token."""
+    header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
+
+    # Add expiration
+    payload["exp"] = (datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)).timestamp()
+    payload["iat"] = datetime.now(timezone.utc).timestamp()
+
+    header_b64 = base64url_encode(json.dumps(header).encode())
+    payload_b64 = base64url_encode(json.dumps(payload).encode())
+
+    message = f"{header_b64}.{payload_b64}"
+    signature = hmac.new(
+        JWT_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).digest()
+    signature_b64 = base64url_encode(signature)
+
+    return f"{message}.{signature_b64}"
+
+def verify_jwt(token: str) -> Optional[dict]:
+    """Verify a JWT token and return payload if valid."""
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+
+        header_b64, payload_b64, signature_b64 = parts
+
+        # Verify signature
+        message = f"{header_b64}.{payload_b64}"
+        expected_signature = hmac.new(
+            JWT_SECRET.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).digest()
+
+        actual_signature = base64url_decode(signature_b64)
+
+        if not hmac.compare_digest(expected_signature, actual_signature):
+            return None
+
+        # Decode payload
+        payload = json.loads(base64url_decode(payload_b64))
+
+        # Check expiration
+        if payload.get("exp", 0) < datetime.now(timezone.utc).timestamp():
+            return None
+
+        return payload
+    except Exception as e:
+        logger.error(f"JWT verification error: {e}")
+        return None
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
+    """Dependency to get current authenticated user."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+
+    token = authorization[7:]
+    payload = verify_jwt(token)
+
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    return payload
+
+# ============================================================================
+# GOOGLE SHEETS UTILITIES
+# ============================================================================
+
+UPWORK_PIPELINE_SHEET_ID = os.getenv("UPWORK_PIPELINE_SHEET_ID")
+
+# Import column definitions
+try:
+    from upwork_sheets_setup import PIPELINE_COLUMNS, get_credentials
+    SHEETS_AVAILABLE = True
+except ImportError:
+    PIPELINE_COLUMNS = [
+        "job_id", "source", "status", "title", "url", "description",
+        "attachments", "budget_type", "budget_min", "budget_max",
+        "client_country", "client_spent", "client_hires", "payment_verified",
+        "fit_score", "fit_reasoning", "proposal_doc_url", "proposal_text",
+        "video_url", "pdf_url", "boost_decision", "boost_reasoning",
+        "pricing_proposed", "slack_message_ts", "approved_at", "submitted_at",
+        "error_log", "created_at", "updated_at"
+    ]
+    SHEETS_AVAILABLE = False
+
+try:
+    import gspread
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    logger.warning("gspread not available")
+
+def get_sheets_client():
+    """Get authenticated gspread client."""
+    if not GSPREAD_AVAILABLE:
+        return None
+
+    token_paths = ['config/token.json', 'configuration/token.json']
+    creds = None
+
+    for token_path in token_paths:
+        if os.path.exists(token_path):
+            try:
+                with open(token_path) as f:
+                    token_data = json.load(f)
+                creds = Credentials(
+                    token=token_data.get("token"),
+                    refresh_token=token_data.get("refresh_token"),
+                    token_uri=token_data.get("token_uri"),
+                    client_id=token_data.get("client_id"),
+                    client_secret=token_data.get("client_secret"),
+                    scopes=token_data.get("scopes")
+                )
+                break
+            except Exception as e:
+                logger.warning(f"Failed to load token from {token_path}: {e}")
+
+    if not creds:
+        return None
+
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except Exception as e:
+            logger.error(f"Failed to refresh credentials: {e}")
+            return None
+
+    try:
+        return gspread.authorize(creds)
+    except Exception as e:
+        logger.error(f"Failed to authorize gspread: {e}")
+        return None
+
+def get_all_jobs_from_sheet() -> List[Dict]:
+    """Get all jobs from Google Sheet."""
+    if not UPWORK_PIPELINE_SHEET_ID:
+        return []
+
+    client = get_sheets_client()
+    if not client:
+        return []
+
+    try:
+        spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+        records = worksheet.get_all_records()
+
+        # Convert to proper types
+        for record in records:
+            # Convert numeric fields
+            for field in ['budget_min', 'budget_max', 'client_spent', 'fit_score', 'client_hires']:
+                if record.get(field) and record[field] != '':
+                    try:
+                        record[field] = float(record[field]) if '.' in str(record[field]) else int(record[field])
+                    except (ValueError, TypeError):
+                        record[field] = None
+                else:
+                    record[field] = None
+
+            # Convert boolean fields
+            for field in ['payment_verified', 'boost_decision']:
+                val = record.get(field, '')
+                record[field] = str(val).lower() in ('true', '1', 'yes')
+
+        return records
+    except Exception as e:
+        logger.error(f"Failed to get jobs from sheet: {e}")
+        return []
+
+def update_job_in_sheet(job_id: str, updates: Dict[str, Any]) -> bool:
+    """Update a job in Google Sheet."""
+    if not UPWORK_PIPELINE_SHEET_ID:
+        return False
+
+    client = get_sheets_client()
+    if not client:
+        return False
+
+    try:
+        spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+
+        # Find the job row
+        all_job_ids = worksheet.col_values(1)
+        row_index = None
+        for i, cell_value in enumerate(all_job_ids):
+            if cell_value == job_id:
+                row_index = i + 1
+                break
+
+        if not row_index:
+            return False
+
+        # Get headers
+        headers = worksheet.row_values(1)
+
+        # Prepare updates
+        batch_updates = []
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        for field_name, field_value in updates.items():
+            if field_name in headers:
+                col = headers.index(field_name) + 1
+                if isinstance(field_value, datetime):
+                    field_value = field_value.isoformat()
+                elif isinstance(field_value, bool):
+                    field_value = str(field_value).lower()
+                batch_updates.append({
+                    'range': gspread.utils.rowcol_to_a1(row_index, col),
+                    'values': [[field_value]]
+                })
+
+        if batch_updates:
+            worksheet.batch_update(batch_updates)
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update job {job_id}: {e}")
+        return False
+
+# ============================================================================
+# PIPELINE STATUS TRACKING
+# ============================================================================
+
+PIPELINE_STATUS = {
+    "is_running": False,
+    "last_run_time": None,
+    "last_run_status": None,
+    "current_run_id": None,
+    "jobs_processed_today": 0,
+    "last_reset_date": datetime.now(timezone.utc).date().isoformat()
+}
+
+def reset_daily_counter():
+    """Reset daily counter if it's a new day."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    if PIPELINE_STATUS["last_reset_date"] != today:
+        PIPELINE_STATUS["jobs_processed_today"] = 0
+        PIPELINE_STATUS["last_reset_date"] = today
+
+# ============================================================================
+# PYDANTIC MODELS
+# ============================================================================
+
+class LoginRequest(BaseModel):
+    password: str
+
+class PipelineTriggerRequest(BaseModel):
+    source: str = "apify"
+    limit: int = 10
+
+class ProposalUpdateRequest(BaseModel):
+    proposal_text: str
+
+# ============================================================================
+# AUTH ENDPOINTS
+# ============================================================================
+
+@app.post("/api/auth/login")
+async def api_login(request: LoginRequest):
+    """Login with password and get JWT token."""
+    if request.password != UI_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    token = create_jwt({"sub": "user", "type": "access"})
+    return {"token": token, "expires_in": JWT_EXPIRATION_HOURS * 3600}
+
+@app.get("/api/auth/verify")
+async def api_verify(user: dict = Depends(get_current_user)):
+    """Verify JWT token is valid."""
+    return {"valid": True, "user": user.get("sub")}
+
+# ============================================================================
+# JOBS ENDPOINTS
+# ============================================================================
+
+@app.get("/api/jobs")
+async def api_get_jobs(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    user: dict = Depends(get_current_user)
+):
+    """List jobs with filters and pagination."""
+    jobs = get_all_jobs_from_sheet()
+
+    # Filter by status
+    if status:
+        jobs = [j for j in jobs if j.get("status") == status]
+
+    # Filter by search
+    if search:
+        search_lower = search.lower()
+        jobs = [j for j in jobs if
+                search_lower in (j.get("title") or "").lower() or
+                search_lower in (j.get("description") or "").lower() or
+                search_lower in (j.get("job_id") or "").lower()]
+
+    # Sort
+    reverse = sort_order == "desc"
+    jobs.sort(key=lambda x: x.get(sort_by) or "", reverse=reverse)
+
+    # Paginate
+    total = len(jobs)
+    start = (page - 1) * per_page
+    end = start + per_page
+    jobs = jobs[start:end]
+
+    return {
+        "jobs": jobs,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page
+    }
+
+@app.get("/api/jobs/stats")
+async def api_get_job_stats(user: dict = Depends(get_current_user)):
+    """Get job statistics."""
+    jobs = get_all_jobs_from_sheet()
+
+    # Count by status
+    by_status = {}
+    for job in jobs:
+        status = job.get("status", "unknown")
+        by_status[status] = by_status.get(status, 0) + 1
+
+    # Calculate average fit score
+    scores = [j.get("fit_score") for j in jobs if j.get("fit_score") is not None]
+    avg_score = sum(scores) / len(scores) if scores else None
+
+    # Count today's processed
+    today = datetime.now(timezone.utc).date().isoformat()
+    today_count = sum(1 for j in jobs if
+                     j.get("submitted_at", "").startswith(today) or
+                     j.get("approved_at", "").startswith(today))
+
+    reset_daily_counter()
+
+    return {
+        "total": len(jobs),
+        "by_status": by_status,
+        "avg_fit_score": avg_score,
+        "today_processed": today_count or PIPELINE_STATUS["jobs_processed_today"]
+    }
+
+@app.get("/api/jobs/{job_id}")
+async def api_get_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Get a single job by ID."""
+    jobs = get_all_jobs_from_sheet()
+
+    for job in jobs:
+        if job.get("job_id") == job_id:
+            return job
+
+    raise HTTPException(status_code=404, detail="Job not found")
+
+# ============================================================================
+# APPROVALS ENDPOINTS
+# ============================================================================
+
+@app.get("/api/approvals/pending")
+async def api_get_pending_approvals(user: dict = Depends(get_current_user)):
+    """Get all pending approval jobs."""
+    jobs = get_all_jobs_from_sheet()
+    pending = [j for j in jobs if j.get("status") == "pending_approval"]
+
+    # Sort by fit score (highest first)
+    pending.sort(key=lambda x: x.get("fit_score") or 0, reverse=True)
+
+    return pending
+
+@app.post("/api/approvals/{job_id}/approve")
+async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Approve a job for submission."""
+    now = datetime.now(timezone.utc)
+
+    success = update_job_in_sheet(job_id, {
+        "status": "approved",
+        "approved_at": now.isoformat()
+    })
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update job")
+
+    logger.info(f"Job {job_id} approved via Web UI")
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": "approved",
+        "approved_at": now.isoformat()
+    }
+
+@app.post("/api/approvals/{job_id}/reject")
+async def api_reject_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Reject a job."""
+    success = update_job_in_sheet(job_id, {
+        "status": "rejected"
+    })
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update job")
+
+    logger.info(f"Job {job_id} rejected via Web UI")
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": "rejected"
+    }
+
+@app.put("/api/approvals/{job_id}/proposal")
+async def api_update_proposal(
+    job_id: str,
+    request: ProposalUpdateRequest,
+    user: dict = Depends(get_current_user)
+):
+    """Update a job's proposal text."""
+    success = update_job_in_sheet(job_id, {
+        "proposal_text": request.proposal_text
+    })
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update proposal")
+
+    logger.info(f"Proposal updated for job {job_id}")
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "message": "Proposal updated"
+    }
+
+@app.post("/api/approvals/{job_id}/submit")
+async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Trigger submission for an approved job."""
+    # First check job is approved
+    jobs = get_all_jobs_from_sheet()
+    job = next((j for j in jobs if j.get("job_id") == job_id), None)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.get("status") != "approved":
+        raise HTTPException(status_code=400, detail="Job must be approved before submission")
+
+    now = datetime.now(timezone.utc)
+
+    # Update status to submitted
+    success = update_job_in_sheet(job_id, {
+        "status": "submitted",
+        "submitted_at": now.isoformat()
+    })
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update job")
+
+    PIPELINE_STATUS["jobs_processed_today"] += 1
+    logger.info(f"Job {job_id} submitted via Web UI")
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": "submitted",
+        "submitted_at": now.isoformat()
+    }
+
+# ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+@app.get("/api/admin/config")
+async def api_get_config(user: dict = Depends(get_current_user)):
+    """Get configuration (sensitive values masked)."""
+    # List of env vars to show (with sensitive ones masked)
+    env_vars = [
+        "UPWORK_PIPELINE_SHEET_ID",
+        "UPWORK_PROCESSED_IDS_SHEET_ID",
+        "SLACK_BOT_TOKEN",
+        "SLACK_APPROVAL_CHANNEL",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "APIFY_API_TOKEN",
+        "UI_PASSWORD",
+        "JWT_SECRET"
+    ]
+
+    sensitive_keys = ["TOKEN", "KEY", "SECRET", "PASSWORD"]
+
+    config = {}
+    for var in env_vars:
+        value = os.getenv(var)
+        if value:
+            # Mask sensitive values
+            if any(s in var.upper() for s in sensitive_keys):
+                config[var] = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
+            else:
+                config[var] = value
+        else:
+            config[var] = "(not set)"
+
+    return {"config": config}
+
+@app.post("/api/admin/pipeline/trigger")
+async def api_trigger_pipeline(
+    request: PipelineTriggerRequest,
+    user: dict = Depends(get_current_user)
+):
+    """Trigger a pipeline run."""
+    if PIPELINE_STATUS["is_running"]:
+        raise HTTPException(status_code=409, detail="Pipeline is already running")
+
+    run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    PIPELINE_STATUS["is_running"] = True
+    PIPELINE_STATUS["current_run_id"] = run_id
+
+    logger.info(f"Pipeline triggered: source={request.source}, limit={request.limit}, run_id={run_id}")
+
+    # Run pipeline in background (simplified - in production use background task)
+    try:
+        if request.source == "apify":
+            # Run the Upwork scrape pipeline
+            cmd = [
+                sys.executable, "executions/upwork_apify_scraper.py",
+                "--limit", str(request.limit),
+                "-o", ".tmp/ui_triggered_jobs.json"
+            ]
+        else:
+            # Gmail source
+            cmd = [
+                sys.executable, "executions/gmail_unified.py",
+                "--check-upwork-alerts"
+            ]
+
+        # Start subprocess (non-blocking for now)
+        subprocess.Popen(
+            cmd,
+            cwd=str(Path(__file__).parent.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        PIPELINE_STATUS["last_run_time"] = datetime.now(timezone.utc).isoformat()
+        PIPELINE_STATUS["last_run_status"] = "running"
+
+        # In a real implementation, we'd track the process and update status when done
+        # For now, just mark as success after starting
+        import threading
+        def mark_complete():
+            import time
+            time.sleep(5)
+            PIPELINE_STATUS["is_running"] = False
+            PIPELINE_STATUS["last_run_status"] = "success"
+
+        threading.Thread(target=mark_complete, daemon=True).start()
+
+    except Exception as e:
+        PIPELINE_STATUS["is_running"] = False
+        PIPELINE_STATUS["last_run_status"] = "error"
+        logger.error(f"Pipeline trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "success": True,
+        "run_id": run_id,
+        "source": request.source,
+        "limit": request.limit
+    }
+
+@app.get("/api/admin/pipeline/status")
+async def api_get_pipeline_status(user: dict = Depends(get_current_user)):
+    """Get pipeline status."""
+    reset_daily_counter()
+    return PIPELINE_STATUS
+
+@app.get("/api/admin/logs")
+async def api_get_logs(
+    level: Optional[str] = None,
+    limit: int = 100,
+    user: dict = Depends(get_current_user)
+):
+    """Get execution logs."""
+    logs = LOG_BUFFER.copy()
+
+    # Filter by level
+    if level:
+        logs = [l for l in logs if l.get("level") == level.upper()]
+
+    # Sort by timestamp (newest first) and limit
+    logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    logs = logs[:limit]
+
+    return {"logs": logs, "total": len(LOG_BUFFER)}
+
+@app.get("/api/admin/health")
+async def api_get_health(user: dict = Depends(get_current_user)):
+    """Get system health status."""
+    services = {
+        "sheets": False,
+        "slack": False,
+        "openai": False
+    }
+
+    # Check Google Sheets
+    if UPWORK_PIPELINE_SHEET_ID and get_sheets_client():
+        services["sheets"] = True
+
+    # Check Slack (just check token exists)
+    if os.getenv("SLACK_BOT_TOKEN"):
+        services["slack"] = True
+
+    # Check OpenAI (just check key exists)
+    if os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY"):
+        services["openai"] = True
+
+    # Overall status
+    all_healthy = all(services.values())
+    some_healthy = any(services.values())
+
+    status = "healthy" if all_healthy else ("degraded" if some_healthy else "unhealthy")
+
+    return {
+        "status": status,
+        "services": services,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+# ============================================================================
+# TOOL IMPLEMENTATIONS (Original webhook functionality)
 # ============================================================================
 
 def send_email_impl(to: str, subject: str, body: str) -> dict:
@@ -72,7 +789,7 @@ def send_email_impl(to: str, subject: str, body: str) -> dict:
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
     result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
-    logger.info(f"📧 Email sent to {to} | ID: {result['id']}")
+    logger.info(f"Email sent to {to} | ID: {result['id']}")
     return {"status": "sent", "message_id": result["id"]}
 
 
@@ -107,7 +824,7 @@ def read_sheet_impl(spreadsheet_id: str, range: str) -> dict:
     ).execute()
 
     values = result.get("values", [])
-    logger.info(f"📊 Read {len(values)} rows from sheet")
+    logger.info(f"Read {len(values)} rows from sheet")
     return {"rows": len(values), "values": values}
 
 
@@ -143,7 +860,7 @@ def update_sheet_impl(spreadsheet_id: str, range: str, values: list) -> dict:
         body={"values": values}
     ).execute()
 
-    logger.info(f"📊 Updated {result.get('updatedCells', 0)} cells")
+    logger.info(f"Updated {result.get('updatedCells', 0)} cells")
     return {"updated_cells": result.get("updatedCells", 0)}
 
 
@@ -212,7 +929,7 @@ def run_upwork_scrape_apply(input_data: dict) -> dict:
     results = {"steps": [], "errors": []}
 
     # Step 1: Scrape jobs
-    logger.info(f"📡 Scraping Upwork jobs (limit={limit}, days={days})")
+    logger.info(f"Scraping Upwork jobs (limit={limit}, days={days})")
     scrape_cmd = [
         sys.executable, "execution/upwork_apify_scraper.py",
         "--limit", str(limit),
@@ -247,7 +964,7 @@ def run_upwork_scrape_apply(input_data: dict) -> dict:
         return results
 
     # Step 2: Generate proposals
-    logger.info(f"📝 Generating proposals (workers={workers})")
+    logger.info(f"Generating proposals (workers={workers})")
     proposal_cmd = [
         sys.executable, "execution/upwork_proposal_generator.py",
         "--input", ".tmp/upwork_jobs_batch.json",
@@ -289,7 +1006,6 @@ def run_upwork_scrape_apply(input_data: dict) -> dict:
             pass
 
     # Extract Google Sheet URL from proposal stdout
-    import re
     proposal_stdout = results["steps"][-1]["stdout"] if results["steps"] else ""
     sheet_match = re.search(r'https://docs\.google\.com/spreadsheets/d/[a-zA-Z0-9_-]+', proposal_stdout)
     if sheet_match:
@@ -398,7 +1114,7 @@ Execute the directive now."""
     total_output_tokens = 0
     turn_count = 0
 
-    logger.info(f"🎯 Executing directive: {slug}")
+    logger.info(f"Executing directive: {slug}")
 
     response = client.messages.create(
         model="claude-opus-4-5-20251101",
@@ -418,7 +1134,7 @@ Execute the directive now."""
         for block in response.content:
             if block.type == "thinking":
                 thinking_log.append({"turn": turn_count, "thinking": block.thinking})
-                logger.info(f"💭 Turn {turn_count} thinking: {block.thinking[:100]}...")
+                logger.info(f"Turn {turn_count} thinking: {block.thinking[:100]}...")
 
         # Find tool call
         tool_use = next((b for b in response.content if b.type == "tool_use"), None)
@@ -430,7 +1146,7 @@ Execute the directive now."""
             tool_result = json.dumps({"error": f"Tool '{tool_use.name}' not permitted"})
             is_error = True
         else:
-            logger.info(f"🔧 Turn {turn_count} - {tool_use.name}: {tool_use.input}")
+            logger.info(f"Turn {turn_count} - {tool_use.name}: {tool_use.input}")
             conversation_log.append({"turn": turn_count, "tool": tool_use.name, "input": tool_use.input})
 
             # Execute tool
@@ -449,7 +1165,7 @@ Execute the directive now."""
                 is_error = True
 
             conversation_log[-1]["result"] = tool_result
-            logger.info(f"{'❌' if is_error else '✅'} Result: {tool_result[:200]}")
+            logger.info(f"{'Error' if is_error else 'Success'}: {tool_result[:200]}")
 
         # Continue conversation
         messages.append({"role": "assistant", "content": response.content})
@@ -482,7 +1198,7 @@ Execute the directive now."""
         "turns": turn_count
     }
 
-    logger.info(f"✨ Complete - {usage['turns']} turns, {usage['input_tokens']}→{usage['output_tokens']} tokens")
+    logger.info(f"Complete - {usage['turns']} turns, {usage['input_tokens']} -> {usage['output_tokens']} tokens")
 
     return {
         "response": final_text,
@@ -493,7 +1209,7 @@ Execute the directive now."""
 
 
 # ============================================================================
-# ENDPOINTS
+# ORIGINAL ENDPOINTS
 # ============================================================================
 
 @app.get("/")
@@ -504,7 +1220,8 @@ async def root():
         "status": "running",
         "endpoints": {
             "webhook": "POST /webhook/{slug}",
-            "list": "GET /webhooks"
+            "list": "GET /webhooks",
+            "api": "/api/*"
         }
     }
 
@@ -551,7 +1268,7 @@ async def execute_webhook(slug: str, payload: Optional[dict] = None):
 
     # Handle script-type webhooks
     if script_name:
-        logger.info(f"🔧 Running script: {script_name}")
+        logger.info(f"Running script: {script_name}")
         try:
             result = run_script(script_name, input_data)
             return {
@@ -605,6 +1322,28 @@ async def execute_webhook(slug: str, payload: Optional[dict] = None):
     except Exception as e:
         logger.error(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# STATIC FILE SERVING (for production frontend)
+# ============================================================================
+
+# Serve frontend static files if they exist
+frontend_dist = Path(__file__).parent.parent / "static" / "frontend"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+
+    @app.get("/{path:path}")
+    async def serve_spa(path: str):
+        """Serve SPA for all unmatched routes."""
+        # Don't catch API routes
+        if path.startswith("api/") or path.startswith("webhook"):
+            raise HTTPException(status_code=404)
+
+        index_file = frontend_dist / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404)
 
 
 if __name__ == "__main__":
