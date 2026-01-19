@@ -28,7 +28,11 @@ def scrape_upwork_jobs(
     from_date: str = None,
     to_date: str = None,
 ) -> list[dict]:
-    """Scrape Upwork jobs using Apify actor (free tier filters only)."""
+    """Scrape Upwork jobs using Apify actor (free tier filters only).
+
+    Note: If the actor returns no results, check the Apify console and clear
+    any saved category filters in the actor's Input configuration.
+    """
 
     api_token = os.environ.get("APIFY_API_TOKEN")
     if not api_token:
@@ -38,6 +42,7 @@ def scrape_upwork_jobs(
     run_url = f"https://api.apify.com/v2/acts/{actor_id}/runs?token={api_token}"
 
     # Free tier only supports: limit, fromDate, toDate
+    # Category filters must be cleared in Apify console if needed
     input_data = {"limit": limit}
     if from_date:
         input_data["fromDate"] = from_date

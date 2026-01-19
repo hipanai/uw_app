@@ -93,6 +93,14 @@ except ImportError:
     PREFILTER_AVAILABLE = False
     logger.warning("upwork_prefilter not available")
 
+# Anthropic client for async scoring
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    logger.warning("anthropic not available")
+
 try:
     from upwork_deep_extractor import extract_job_sync, extract_jobs_batch_async
     DEEP_EXTRACTOR_AVAILABLE = True
@@ -368,12 +376,12 @@ def update_job_in_sheet(job: PipelineJob, sheet_id: Optional[str] = None, mock: 
     try:
         sheet = client.open_by_key(sheet_id).sheet1
 
-        # Find existing row by job_id
-        try:
-            cell = sheet.find(job.job_id)
-            row_num = cell.row
+        # Find existing row by job_id (returns None if not found in gspread >= 5.0)
+        cell = sheet.find(job.job_id)
 
+        if cell is not None:
             # Update existing row
+            row_num = cell.row
             row_data = job.to_sheet_row()
             headers = sheet.row_values(1)
             updates = []
@@ -389,8 +397,7 @@ def update_job_in_sheet(job: PipelineJob, sheet_id: Optional[str] = None, mock: 
 
             logger.info(f"Updated existing row for job {job.job_id}")
             return True
-
-        except gspread.exceptions.CellNotFound:
+        else:
             # Insert new row
             row_data = job.to_sheet_row()
             headers = sheet.row_values(1)
@@ -643,21 +650,27 @@ async def run_pipeline_async(
             job.status = PipelineStatus.SCORING
             update_job_in_sheet(job, mock=mock)
 
-        if PREFILTER_AVAILABLE:
+        if PREFILTER_AVAILABLE and ANTHROPIC_AVAILABLE:
             if mock:
                 # Mock scoring - alternate high/low scores
                 for i, job in enumerate(pipeline_jobs):
                     job.fit_score = 85 if i % 2 == 0 else 55
                     job.fit_reasoning = "Mock scoring result"
             else:
-                # Real scoring
+                # Real scoring - create async anthropic client
+                async_client = anthropic.AsyncAnthropic()
                 job_dicts = [{'job_id': j.job_id, 'title': j.title, 'description': j.description}
                             for j in pipeline_jobs]
-                scored = await score_jobs_batch_async(job_dicts, max_concurrent=parallel)
+                scored = await score_jobs_batch_async(job_dicts, async_client, max_concurrent=parallel)
 
                 for job, scored_data in zip(pipeline_jobs, scored):
                     job.fit_score = scored_data.get('fit_score')
                     job.fit_reasoning = scored_data.get('fit_reasoning')
+        elif PREFILTER_AVAILABLE and not ANTHROPIC_AVAILABLE:
+            # Pre-filter available but anthropic not - assume all pass
+            for job in pipeline_jobs:
+                job.fit_score = 100
+                job.fit_reasoning = "Anthropic client unavailable"
         else:
             # No pre-filter - assume all pass
             for job in pipeline_jobs:
