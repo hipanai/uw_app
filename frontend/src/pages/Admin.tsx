@@ -24,6 +24,8 @@ export function Admin() {
   const [triggerLimit, setTriggerLimit] = useState<number>(10);
   const [triggerKeywords, setTriggerKeywords] = useState<string>('');
   const [triggerLocation, setTriggerLocation] = useState<string>('');
+  const [runFullPipeline, setRunFullPipeline] = useState<boolean>(false);
+  const [minScore, setMinScore] = useState<number>(70);
   const [logLevel, setLogLevel] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -109,9 +111,13 @@ export function Admin() {
         triggerSource,
         triggerLimit,
         triggerKeywords || undefined,
-        triggerLocation || undefined
+        triggerLocation || undefined,
+        runFullPipeline,
+        minScore
       );
-      let msg = `Pipeline triggered! Run ID: ${result.run_id}`;
+      let msg = runFullPipeline
+        ? `Full Pipeline triggered! Run ID: ${result.run_id} (score >= ${minScore})`
+        : `Scrape triggered! Run ID: ${result.run_id}`;
       if (triggerKeywords) msg += ` | Keywords: ${triggerKeywords}`;
       if (triggerLocation) msg += ` | Location: ${triggerLocation}`;
       setSuccess(msg);
@@ -301,13 +307,58 @@ export function Admin() {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-4">
+
+            {/* Full Pipeline Options */}
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center gap-3 mb-3">
+                <input
+                  type="checkbox"
+                  id="runFullPipeline"
+                  checked={runFullPipeline}
+                  onChange={(e) => setRunFullPipeline(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                />
+                <label htmlFor="runFullPipeline" className="font-medium text-gray-700">
+                  Run Full Pipeline
+                </label>
+              </div>
+              <p className="text-sm text-gray-500 mb-3">
+                When enabled, runs the complete workflow: Scrape → Score → Extract → Generate Proposal → Boost Decision → Send to Approval.
+                When disabled, only scrapes and imports jobs to the sheet.
+              </p>
+              {runFullPipeline && (
+                <div className="flex items-center gap-4">
+                  <label className="text-sm text-gray-600">Min Fit Score:</label>
+                  <input
+                    type="number"
+                    value={minScore}
+                    onChange={(e) => setMinScore(parseInt(e.target.value) || 70)}
+                    min={0}
+                    max={100}
+                    className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm"
+                  />
+                  <span className="text-sm text-gray-500">
+                    Jobs below this score will be filtered out
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-4 mt-4">
               <button
                 onClick={handleTrigger}
                 disabled={triggerLoading || pipelineStatus?.is_running}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                className={`px-4 py-2 rounded-md text-white ${
+                  runFullPipeline
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                } disabled:opacity-50`}
               >
-                {triggerLoading ? 'Triggering...' : 'Run Pipeline'}
+                {triggerLoading
+                  ? 'Triggering...'
+                  : runFullPipeline
+                  ? 'Run Full Pipeline'
+                  : 'Scrape Only'}
               </button>
               {triggerSource === 'gmail' && (
                 <p className="text-sm text-gray-500">

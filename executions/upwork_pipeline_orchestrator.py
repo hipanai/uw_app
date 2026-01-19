@@ -242,17 +242,19 @@ class PipelineJob:
     @classmethod
     def from_apify_job(cls, job: dict) -> 'PipelineJob':
         """Create PipelineJob from Apify scraper output."""
-        # Extract job_id from URL
+        # Extract job_id - Apify may use 'id', 'uid', or 'job_id'
         url = job.get('url', '')
-        job_id = job.get('id', '')
+        job_id = job.get('id') or job.get('uid') or job.get('job_id') or ''
+
+        # Try to extract from URL if not found
         if not job_id and url:
             import re
-            match = re.search(r'~([a-f0-9]+)', url, re.IGNORECASE)
+            match = re.search(r'~0?(\d+)', url)
             if match:
-                job_id = f"~{match.group(1)}"
+                job_id = match.group(1)
 
         return cls(
-            job_id=job_id,
+            job_id=str(job_id),
             url=url,
             source='apify',
             title=job.get('title'),
@@ -615,7 +617,15 @@ async def run_pipeline_async(
 
         if DEDUPLICATOR_AVAILABLE and not mock:
             job_dicts = [{'job_id': j.job_id, 'source': j.source} for j in pipeline_jobs]
-            new_job_ids = set(deduplicate_jobs(job_dicts))
+            logger.debug(f"Job dicts for dedup: {job_dicts}")
+            # Create deduplicator and check for new jobs
+            deduplicator = LocalDeduplicator()
+            processed_before = deduplicator.get_processed_ids()
+            logger.debug(f"Processed IDs before dedup: {len(processed_before)} items")
+            new_jobs, dup_jobs = deduplicate_jobs(job_dicts, deduplicator)
+            logger.debug(f"Dedup result: {len(new_jobs)} new, {len(dup_jobs)} duplicates")
+            new_job_ids = set(j.get('job_id') or j.get('id') for j in new_jobs)
+            logger.debug(f"New job IDs: {new_job_ids}")
             pipeline_jobs = [j for j in pipeline_jobs if j.job_id in new_job_ids]
 
         result.jobs_after_dedup = len(pipeline_jobs)

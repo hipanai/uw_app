@@ -105,13 +105,28 @@ export const triggerPipeline = async (
   source: 'apify' | 'gmail',
   limit?: number,
   keywords?: string,
-  location?: string
+  location?: string,
+  runFullPipeline?: boolean,
+  minScore?: number
 ): Promise<PipelineTriggerResponse> => {
   const response = await apiClient.post<PipelineTriggerResponse>('/admin/pipeline/trigger', {
     source,
     limit,
     keywords: keywords || undefined,
     location: location || undefined,
+    run_full_pipeline: runFullPipeline ?? false,
+    min_score: minScore ?? 70,
+  });
+  return response.data;
+};
+
+export const processJobs = async (
+  jobIds: string[],
+  minScore?: number
+): Promise<{ success: boolean; run_id: string; job_count: number; message: string }> => {
+  const response = await apiClient.post('/admin/pipeline/process', {
+    job_ids: jobIds,
+    min_score: minScore ?? 70,
   });
   return response.data;
 };

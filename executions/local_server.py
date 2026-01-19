@@ -373,7 +373,8 @@ def add_jobs_to_sheet(jobs: List[Dict]) -> int:
         rows_to_add = []
 
         for job in jobs:
-            job_id = str(job.get('id', ''))
+            # Handle different ID field names from various scrapers
+            job_id = str(job.get('id') or job.get('uid') or job.get('job_id') or '')
             if not job_id or job_id in existing_ids:
                 continue
 
@@ -481,6 +482,8 @@ class PipelineTriggerRequest(BaseModel):
     limit: int = 10
     keywords: Optional[str] = None  # Comma-separated keywords to filter jobs
     location: Optional[str] = None  # Location filter (e.g., "United States", "Remote")
+    run_full_pipeline: bool = False  # If True, run full pipeline (score, extract, generate, approve)
+    min_score: int = 70  # Minimum fit score for full pipeline
 
 class ProposalUpdateRequest(BaseModel):
     proposal_text: str
@@ -879,7 +882,7 @@ async def api_trigger_pipeline(
     PIPELINE_STATUS["last_run_time"] = datetime.now(timezone.utc).isoformat()
     PIPELINE_STATUS["last_run_status"] = "running"
 
-    logger.info(f"Pipeline triggered: source={request.source}, limit={request.limit}, keywords={request.keywords}, location={request.location}, run_id={run_id}")
+    logger.info(f"Pipeline triggered: source={request.source}, limit={request.limit}, keywords={request.keywords}, location={request.location}, run_full={request.run_full_pipeline}, run_id={run_id}")
 
     # Run pipeline in background thread
     import threading
@@ -889,8 +892,50 @@ async def api_trigger_pipeline(
         jobs_added = 0
 
         try:
-            if request.source == "apify":
-                # Run the Upwork scrape pipeline
+            if request.run_full_pipeline:
+                # Run full pipeline orchestrator (scrape → score → extract → generate → approve)
+                logger.info("Running FULL pipeline with orchestrator...")
+                cmd = [
+                    sys.executable, "executions/upwork_pipeline_orchestrator.py",
+                    "--source", request.source,
+                    "--limit", str(request.limit),
+                    "--min-score", str(request.min_score),
+                    "--parallel", "2",
+                    "-o", str(output_file.with_suffix('.result.json'))
+                ]
+
+                logger.info(f"Running command: {' '.join(cmd)}")
+
+                # Run with longer timeout for full pipeline
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(Path(__file__).parent.parent),
+                    capture_output=True,
+                    text=True,
+                    timeout=900  # 15 minute timeout for full pipeline
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"Pipeline orchestrator failed: {result.stderr}")
+                    PIPELINE_STATUS["last_run_status"] = "error"
+                    PIPELINE_STATUS["is_running"] = False
+                    return
+
+                logger.info(f"Pipeline output: {result.stdout[-1000:]}")
+
+                # Parse results from orchestrator output
+                result_file = output_file.with_suffix('.result.json')
+                if result_file.exists():
+                    with open(result_file) as f:
+                        pipeline_result = json.load(f)
+                    jobs_added = pipeline_result.get('jobs_processed', 0)
+                    logger.info(f"Pipeline result: {pipeline_result.get('jobs_ingested', 0)} ingested, "
+                              f"{pipeline_result.get('jobs_after_prefilter', 0)} after filter, "
+                              f"{pipeline_result.get('jobs_sent_to_slack', 0)} sent to approval")
+
+            elif request.source == "apify":
+                # Run scrape-only mode (just import jobs to sheet)
+                logger.info("Running SCRAPE ONLY mode...")
                 cmd = [
                     sys.executable, "executions/upwork_apify_scraper.py",
                     "--limit", str(request.limit),
@@ -997,6 +1042,121 @@ async def api_import_jobs(user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Import failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class ProcessJobsRequest(BaseModel):
+    job_ids: List[str]  # List of job IDs to process
+    min_score: int = 70
+
+@app.post("/api/admin/pipeline/process")
+async def api_process_jobs(
+    request: ProcessJobsRequest,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Process specific jobs through the remaining pipeline stages.
+    Takes jobs that are already in the sheet and runs them through:
+    scoring → extraction → deliverable generation → boost decision → approval
+    """
+    if PIPELINE_STATUS["is_running"]:
+        raise HTTPException(status_code=409, detail="Pipeline is already running")
+
+    if not request.job_ids:
+        raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    run_id = f"process_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    PIPELINE_STATUS["is_running"] = True
+    PIPELINE_STATUS["current_run_id"] = run_id
+    PIPELINE_STATUS["last_run_time"] = datetime.now(timezone.utc).isoformat()
+    PIPELINE_STATUS["last_run_status"] = "running"
+
+    logger.info(f"Processing {len(request.job_ids)} jobs: {request.job_ids[:5]}...")
+
+    import threading
+
+    def process_jobs():
+        try:
+            # Get job details from sheet
+            jobs_to_process = []
+            client = get_sheets_client()
+            if not client:
+                logger.error("Could not get sheets client")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
+
+            spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
+            worksheet = spreadsheet.get_worksheet(0)
+            all_data = worksheet.get_all_records()
+
+            for row in all_data:
+                if str(row.get('job_id', '')) in request.job_ids:
+                    jobs_to_process.append({
+                        'job_id': str(row.get('job_id', '')),
+                        'url': row.get('url', ''),
+                        'title': row.get('title', ''),
+                        'description': row.get('description', ''),
+                        'source': row.get('source', 'manual'),
+                    })
+
+            if not jobs_to_process:
+                logger.warning(f"No matching jobs found for IDs: {request.job_ids}")
+                PIPELINE_STATUS["last_run_status"] = "success"
+                PIPELINE_STATUS["is_running"] = False
+                return
+
+            logger.info(f"Found {len(jobs_to_process)} jobs to process")
+
+            # Save jobs to temp file for orchestrator
+            jobs_file = Path(__file__).parent.parent / ".tmp" / "jobs_to_process.json"
+            jobs_file.parent.mkdir(exist_ok=True)
+            with open(jobs_file, 'w') as f:
+                json.dump(jobs_to_process, f)
+
+            # Run orchestrator with manual source
+            output_file = Path(__file__).parent.parent / ".tmp" / "process_result.json"
+            cmd = [
+                sys.executable, "executions/upwork_pipeline_orchestrator.py",
+                "--source", "manual",
+                "--jobs", str(jobs_file),
+                "--min-score", str(request.min_score),
+                "--parallel", "2",
+                "-o", str(output_file)
+            ]
+
+            logger.info(f"Running: {' '.join(cmd)}")
+
+            result = subprocess.run(
+                cmd,
+                cwd=str(Path(__file__).parent.parent),
+                capture_output=True,
+                text=True,
+                timeout=900
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Processing failed: {result.stderr}")
+                PIPELINE_STATUS["last_run_status"] = "error"
+            else:
+                logger.info(f"Processing output: {result.stdout[-1000:]}")
+                PIPELINE_STATUS["last_run_status"] = "success"
+
+        except subprocess.TimeoutExpired:
+            logger.error("Processing timed out")
+            PIPELINE_STATUS["last_run_status"] = "error"
+        except Exception as e:
+            logger.error(f"Processing error: {e}")
+            PIPELINE_STATUS["last_run_status"] = "error"
+        finally:
+            PIPELINE_STATUS["is_running"] = False
+
+    threading.Thread(target=process_jobs, daemon=True).start()
+
+    return {
+        "success": True,
+        "run_id": run_id,
+        "job_count": len(request.job_ids),
+        "message": f"Processing {len(request.job_ids)} jobs in background"
+    }
 
 @app.get("/api/admin/pipeline/status")
 async def api_get_pipeline_status(user: dict = Depends(get_current_user)):
