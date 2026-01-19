@@ -1297,5 +1297,986 @@
     ],
     "passes": true,
     "priority": "medium"
+  },
+  {
+    "id": 101,
+    "category": "functional",
+    "description": "Frontend project initializes with Vite + React + TypeScript",
+    "steps": [
+      "Navigate to frontend/ directory",
+      "Run npm install",
+      "Verify package.json exists with react, vite dependencies",
+      "Run npm run dev",
+      "Verify dev server starts on port 5173"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 102,
+    "category": "functional",
+    "description": "Tailwind CSS is configured and working",
+    "steps": [
+      "Check tailwind.config.js exists",
+      "Verify content paths include src/**/*.tsx",
+      "Create component with Tailwind classes",
+      "Verify styles are applied correctly"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 103,
+    "category": "functional",
+    "description": "shadcn/ui components are installed and functional",
+    "steps": [
+      "Verify components.json exists",
+      "Check src/components/ui/ directory exists",
+      "Import and render Button component",
+      "Verify component renders with correct styling"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 104,
+    "category": "functional",
+    "description": "Vite proxy forwards /api requests to FastAPI backend",
+    "steps": [
+      "Configure proxy in vite.config.ts",
+      "Start FastAPI on port 8000",
+      "Start Vite dev server",
+      "Make request to /api/health from frontend",
+      "Verify request reaches FastAPI backend"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 105,
+    "category": "functional",
+    "description": "React Router is configured with all routes",
+    "steps": [
+      "Navigate to /login",
+      "Navigate to /dashboard",
+      "Navigate to /approval",
+      "Navigate to /admin",
+      "Verify each route renders correct page component"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 106,
+    "category": "functional",
+    "description": "POST /api/auth/login endpoint authenticates with password",
+    "steps": [
+      "Send POST to /api/auth/login with correct password",
+      "Verify 200 response with JWT token",
+      "Send POST with incorrect password",
+      "Verify 401 response"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 107,
+    "category": "functional",
+    "description": "GET /api/auth/verify validates JWT token",
+    "steps": [
+      "Send GET to /api/auth/verify with valid token",
+      "Verify 200 response with valid: true",
+      "Send GET with expired token",
+      "Verify 401 response",
+      "Send GET with invalid token",
+      "Verify 401 response"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 108,
+    "category": "functional",
+    "description": "Protected API routes require valid JWT",
+    "steps": [
+      "Send GET to /api/jobs without token",
+      "Verify 401 response",
+      "Send GET to /api/jobs with valid token",
+      "Verify 200 response with jobs data"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 109,
+    "category": "functional",
+    "description": "GET /api/jobs returns paginated job list",
+    "steps": [
+      "Send GET to /api/jobs",
+      "Verify response contains jobs array",
+      "Verify response contains total count",
+      "Verify response contains page and per_page",
+      "Send GET with ?page=2&per_page=10",
+      "Verify pagination works correctly"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 110,
+    "category": "functional",
+    "description": "GET /api/jobs supports status filter",
+    "steps": [
+      "Send GET to /api/jobs?status=pending_approval",
+      "Verify all returned jobs have status pending_approval",
+      "Send GET to /api/jobs?status=submitted",
+      "Verify all returned jobs have status submitted"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 111,
+    "category": "functional",
+    "description": "GET /api/jobs supports search filter",
+    "steps": [
+      "Send GET to /api/jobs?search=automation",
+      "Verify returned jobs contain 'automation' in title or description",
+      "Send GET with non-matching search term",
+      "Verify empty results"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 112,
+    "category": "functional",
+    "description": "GET /api/jobs/{job_id} returns single job details",
+    "steps": [
+      "Send GET to /api/jobs/~test123",
+      "Verify response contains all job fields",
+      "Verify attachments field is parsed JSON",
+      "Send GET with non-existent job_id",
+      "Verify 404 response"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 113,
+    "category": "functional",
+    "description": "GET /api/jobs/stats returns job statistics",
+    "steps": [
+      "Send GET to /api/jobs/stats",
+      "Verify response contains total count",
+      "Verify response contains by_status breakdown",
+      "Verify response contains avg_fit_score",
+      "Verify response contains today_processed count"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 114,
+    "category": "functional",
+    "description": "GET /api/approvals/pending returns only pending jobs",
+    "steps": [
+      "Send GET to /api/approvals/pending",
+      "Verify all returned jobs have status pending_approval",
+      "Verify response includes proposal_text",
+      "Verify response includes video_url and pdf_url"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 115,
+    "category": "functional",
+    "description": "POST /api/approvals/{job_id}/approve updates job status",
+    "steps": [
+      "Create job with status pending_approval",
+      "Send POST to /api/approvals/{job_id}/approve",
+      "Verify response shows success",
+      "Verify job status changed to approved in sheet",
+      "Verify approved_at timestamp is set"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 116,
+    "category": "functional",
+    "description": "POST /api/approvals/{job_id}/reject updates job status",
+    "steps": [
+      "Create job with status pending_approval",
+      "Send POST to /api/approvals/{job_id}/reject",
+      "Verify response shows success",
+      "Verify job status changed to rejected in sheet"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 117,
+    "category": "functional",
+    "description": "PUT /api/approvals/{job_id}/proposal updates proposal text",
+    "steps": [
+      "Create job with existing proposal_text",
+      "Send PUT to /api/approvals/{job_id}/proposal with new text",
+      "Verify response shows success",
+      "Verify proposal_text updated in sheet"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 118,
+    "category": "functional",
+    "description": "POST /api/approvals/{job_id}/submit triggers Playwright submission",
+    "steps": [
+      "Create approved job with all deliverables",
+      "Send POST to /api/approvals/{job_id}/submit",
+      "Verify response indicates submission queued",
+      "Verify submission workflow is triggered"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 119,
+    "category": "functional",
+    "description": "GET /api/admin/config returns masked configuration",
+    "steps": [
+      "Send GET to /api/admin/config",
+      "Verify PREFILTER_MIN_SCORE is returned",
+      "Verify API keys are masked (show only last 4 chars)",
+      "Verify sheet IDs are partially masked"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 120,
+    "category": "functional",
+    "description": "POST /api/admin/pipeline/trigger starts pipeline run",
+    "steps": [
+      "Send POST to /api/admin/pipeline/trigger with source=apify",
+      "Verify response contains run_id",
+      "Verify response shows status=started",
+      "Verify pipeline orchestrator is invoked"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 121,
+    "category": "functional",
+    "description": "GET /api/admin/pipeline/status returns pipeline state",
+    "steps": [
+      "Send GET to /api/admin/pipeline/status",
+      "Verify response contains running boolean",
+      "Verify response contains last_run timestamp",
+      "Verify response contains last_result summary"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 122,
+    "category": "functional",
+    "description": "GET /api/admin/logs returns execution logs",
+    "steps": [
+      "Send GET to /api/admin/logs",
+      "Verify response contains logs array",
+      "Send GET with ?level=ERROR",
+      "Verify only error logs returned",
+      "Send GET with ?limit=10",
+      "Verify max 10 logs returned"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 123,
+    "category": "functional",
+    "description": "GET /api/admin/health returns system health status",
+    "steps": [
+      "Send GET to /api/admin/health",
+      "Verify response contains sheets_connected boolean",
+      "Verify response contains slack_configured boolean",
+      "Verify response contains anthropic_configured boolean",
+      "Verify response contains heygen_configured boolean"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 124,
+    "category": "functional",
+    "description": "Login page renders with password input",
+    "steps": [
+      "Navigate to http://localhost:5173/login",
+      "Verify password input field is visible",
+      "Verify login button is visible",
+      "Verify no errors in browser console"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 125,
+    "category": "functional",
+    "description": "Login form submits and stores JWT token",
+    "steps": [
+      "Navigate to /login",
+      "Enter correct password",
+      "Click login button",
+      "Verify redirect to /dashboard",
+      "Verify token stored in localStorage"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 126,
+    "category": "functional",
+    "description": "Login form shows error for incorrect password",
+    "steps": [
+      "Navigate to /login",
+      "Enter incorrect password",
+      "Click login button",
+      "Verify error message is displayed",
+      "Verify user stays on login page"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 127,
+    "category": "functional",
+    "description": "Protected routes redirect to login when not authenticated",
+    "steps": [
+      "Clear localStorage token",
+      "Navigate to /dashboard",
+      "Verify redirect to /login",
+      "Navigate to /approval",
+      "Verify redirect to /login"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 128,
+    "category": "functional",
+    "description": "AppLayout renders sidebar navigation",
+    "steps": [
+      "Login and navigate to /dashboard",
+      "Verify sidebar is visible",
+      "Verify Dashboard link is present",
+      "Verify Approvals link is present",
+      "Verify Admin link is present",
+      "Verify Logout button is present"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 129,
+    "category": "functional",
+    "description": "Sidebar navigation works correctly",
+    "steps": [
+      "Click Dashboard link",
+      "Verify URL is /dashboard",
+      "Click Approvals link",
+      "Verify URL is /approval",
+      "Click Admin link",
+      "Verify URL is /admin"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 130,
+    "category": "functional",
+    "description": "Logout clears token and redirects to login",
+    "steps": [
+      "Login and verify token in localStorage",
+      "Click Logout button",
+      "Verify token removed from localStorage",
+      "Verify redirect to /login"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 131,
+    "category": "functional",
+    "description": "Dashboard page loads and displays jobs table",
+    "steps": [
+      "Navigate to /dashboard",
+      "Verify JobsTable component renders",
+      "Verify table headers are visible (ID, Title, Status, Score, Budget)",
+      "Verify jobs data is loaded from API",
+      "Verify loading state shows while fetching"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 132,
+    "category": "functional",
+    "description": "Jobs table displays correct columns",
+    "steps": [
+      "View jobs table on dashboard",
+      "Verify job_id column shows shortened ID",
+      "Verify title column shows job title",
+      "Verify status column shows status badge",
+      "Verify fit_score column shows score with color",
+      "Verify budget column shows formatted budget"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 133,
+    "category": "functional",
+    "description": "ScoreBadge displays correct colors based on score",
+    "steps": [
+      "View job with fit_score >= 85",
+      "Verify badge is green",
+      "View job with fit_score 70-84",
+      "Verify badge is yellow",
+      "View job with fit_score < 70",
+      "Verify badge is red"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 134,
+    "category": "functional",
+    "description": "Status badges show correct colors and labels",
+    "steps": [
+      "View job with status=new",
+      "Verify blue badge with 'New' label",
+      "View job with status=pending_approval",
+      "Verify yellow badge with 'Pending' label",
+      "View job with status=approved",
+      "Verify green badge with 'Approved' label"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 135,
+    "category": "functional",
+    "description": "Jobs table supports sorting by columns",
+    "steps": [
+      "Click on Title column header",
+      "Verify jobs sorted alphabetically by title",
+      "Click again to reverse sort",
+      "Click on Score column header",
+      "Verify jobs sorted by fit_score"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 136,
+    "category": "functional",
+    "description": "Jobs table supports pagination",
+    "steps": [
+      "View jobs table with more than 10 jobs",
+      "Verify pagination controls visible",
+      "Click next page button",
+      "Verify new jobs loaded",
+      "Verify page indicator updates"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 137,
+    "category": "functional",
+    "description": "Status filter dropdown filters jobs",
+    "steps": [
+      "Open status filter dropdown",
+      "Select 'Pending Approval'",
+      "Verify only pending_approval jobs shown",
+      "Select 'Submitted'",
+      "Verify only submitted jobs shown",
+      "Clear filter",
+      "Verify all jobs shown"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 138,
+    "category": "functional",
+    "description": "Search input filters jobs by title/description",
+    "steps": [
+      "Type 'automation' in search input",
+      "Verify jobs filtered to those containing 'automation'",
+      "Clear search input",
+      "Verify all jobs shown again"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 139,
+    "category": "functional",
+    "description": "Clicking job row opens detail modal",
+    "steps": [
+      "Click on a job row in the table",
+      "Verify modal/dialog opens",
+      "Verify job title shown in modal header",
+      "Verify all job details visible",
+      "Click close button",
+      "Verify modal closes"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 140,
+    "category": "functional",
+    "description": "Job detail modal shows all job information",
+    "steps": [
+      "Open job detail modal",
+      "Verify job description is displayed",
+      "Verify budget information shown",
+      "Verify client information shown",
+      "Verify fit score and reasoning shown",
+      "Verify proposal text shown if available",
+      "Verify links to doc, video, pdf if available"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 141,
+    "category": "functional",
+    "description": "Dashboard shows job statistics cards",
+    "steps": [
+      "Navigate to /dashboard",
+      "Verify total jobs count card visible",
+      "Verify pending approvals count card visible",
+      "Verify submitted today count card visible",
+      "Verify average fit score card visible"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 142,
+    "category": "functional",
+    "description": "Approval page loads pending jobs queue",
+    "steps": [
+      "Navigate to /approval",
+      "Verify ApprovalQueue component renders",
+      "Verify only pending_approval jobs shown",
+      "Verify jobs sorted by fit_score descending",
+      "Verify loading state shows while fetching"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 143,
+    "category": "functional",
+    "description": "Approval queue shows job cards with key info",
+    "steps": [
+      "View approval queue",
+      "Verify each job shows title",
+      "Verify each job shows fit score badge",
+      "Verify each job shows budget",
+      "Verify each job shows proposal preview"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 144,
+    "category": "functional",
+    "description": "Approval card shows Approve/Edit/Reject buttons",
+    "steps": [
+      "View job card in approval queue",
+      "Verify Approve button visible (green)",
+      "Verify Edit button visible",
+      "Verify Reject button visible (red)"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 145,
+    "category": "functional",
+    "description": "Clicking Approve updates job and removes from queue",
+    "steps": [
+      "Click Approve on a pending job",
+      "Verify confirmation dialog appears",
+      "Confirm approval",
+      "Verify job removed from queue",
+      "Verify success toast/notification shown",
+      "Verify job status updated to approved via API"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 146,
+    "category": "functional",
+    "description": "Clicking Reject updates job and removes from queue",
+    "steps": [
+      "Click Reject on a pending job",
+      "Verify confirmation dialog appears",
+      "Confirm rejection",
+      "Verify job removed from queue",
+      "Verify job status updated to rejected via API"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 147,
+    "category": "functional",
+    "description": "Clicking Edit opens proposal editor",
+    "steps": [
+      "Click Edit on a pending job",
+      "Verify ProposalEditor component opens",
+      "Verify current proposal text is loaded",
+      "Verify textarea is editable"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 148,
+    "category": "functional",
+    "description": "ProposalEditor saves changes to API",
+    "steps": [
+      "Open proposal editor for a job",
+      "Modify the proposal text",
+      "Click Save button",
+      "Verify API call made to update proposal",
+      "Verify success notification shown",
+      "Verify editor closes"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 149,
+    "category": "functional",
+    "description": "ProposalEditor shows character count",
+    "steps": [
+      "Open proposal editor",
+      "Verify character count displayed",
+      "Type additional text",
+      "Verify character count updates"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 150,
+    "category": "functional",
+    "description": "Approval page shows links to deliverables",
+    "steps": [
+      "View job with video_url in approval queue",
+      "Verify video link is clickable",
+      "View job with pdf_url",
+      "Verify PDF link is clickable",
+      "View job with proposal_doc_url",
+      "Verify Doc link is clickable"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 151,
+    "category": "functional",
+    "description": "Admin page loads and displays config panel",
+    "steps": [
+      "Navigate to /admin",
+      "Verify ConfigPanel component renders",
+      "Verify environment variables displayed",
+      "Verify sensitive values are masked"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 152,
+    "category": "functional",
+    "description": "Admin page shows system health status",
+    "steps": [
+      "Navigate to /admin",
+      "Verify SystemStatus component renders",
+      "Verify Google Sheets connection status shown",
+      "Verify Slack configuration status shown",
+      "Verify API configuration status shown"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 153,
+    "category": "functional",
+    "description": "Pipeline trigger form works correctly",
+    "steps": [
+      "Navigate to /admin",
+      "Locate PipelineTrigger component",
+      "Select source from dropdown (apify/gmail)",
+      "Set job limit",
+      "Click Trigger Pipeline button",
+      "Verify API call made",
+      "Verify status updates to show running"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 154,
+    "category": "functional",
+    "description": "Log viewer displays execution logs",
+    "steps": [
+      "Navigate to /admin",
+      "Locate LogViewer component",
+      "Verify logs are loaded and displayed",
+      "Verify timestamps are formatted",
+      "Verify log levels are color-coded"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 155,
+    "category": "functional",
+    "description": "Log viewer supports filtering by level",
+    "steps": [
+      "View log viewer on admin page",
+      "Select ERROR filter",
+      "Verify only error logs shown",
+      "Select INFO filter",
+      "Verify info logs shown"
+    ],
+    "passes": false,
+    "priority": "low"
+  },
+  {
+    "id": 156,
+    "category": "functional",
+    "description": "Production build outputs to static/frontend/",
+    "steps": [
+      "Run npm run build in frontend/",
+      "Verify static/frontend/ directory created",
+      "Verify index.html exists",
+      "Verify assets/ directory with JS/CSS bundles"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 157,
+    "category": "functional",
+    "description": "FastAPI serves static frontend files",
+    "steps": [
+      "Build frontend production bundle",
+      "Start FastAPI server",
+      "Navigate to http://localhost:8000/",
+      "Verify React app loads",
+      "Verify /assets/* files are served"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 158,
+    "category": "functional",
+    "description": "FastAPI handles SPA routing for all frontend routes",
+    "steps": [
+      "Start FastAPI with production build",
+      "Navigate to http://localhost:8000/dashboard",
+      "Verify React app loads (not 404)",
+      "Navigate to http://localhost:8000/approval",
+      "Verify React app loads",
+      "Navigate to http://localhost:8000/admin",
+      "Verify React app loads"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 159,
+    "category": "style",
+    "description": "UI uses consistent color scheme throughout",
+    "steps": [
+      "Navigate through all pages",
+      "Verify primary color is consistent",
+      "Verify success/error/warning colors consistent",
+      "Verify dark mode toggle works (if implemented)"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 160,
+    "category": "style",
+    "description": "UI is responsive on mobile devices",
+    "steps": [
+      "Open app in mobile viewport (375px width)",
+      "Verify sidebar collapses to hamburger menu",
+      "Verify tables scroll horizontally",
+      "Verify forms are usable",
+      "Verify buttons are tap-friendly"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 161,
+    "category": "style",
+    "description": "Loading states show skeleton or spinner",
+    "steps": [
+      "Navigate to dashboard",
+      "Verify loading spinner/skeleton while data loads",
+      "Open job detail modal",
+      "Verify loading state while fetching details"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 162,
+    "category": "style",
+    "description": "Error states display user-friendly messages",
+    "steps": [
+      "Disconnect network",
+      "Try to load dashboard",
+      "Verify error message displayed",
+      "Verify retry button available"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 163,
+    "category": "security",
+    "description": "JWT tokens expire after configured time",
+    "steps": [
+      "Login and get token",
+      "Wait for token expiration (or mock time)",
+      "Make API request with expired token",
+      "Verify 401 response",
+      "Verify redirect to login"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 164,
+    "category": "security",
+    "description": "Password is not stored in frontend code",
+    "steps": [
+      "Inspect frontend bundle JS files",
+      "Search for UI_PASSWORD value",
+      "Verify password not hardcoded",
+      "Verify password only sent to API, never stored"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 165,
+    "category": "security",
+    "description": "API endpoints validate input data",
+    "steps": [
+      "Send malformed JSON to /api/auth/login",
+      "Verify 400 response with validation error",
+      "Send SQL injection attempt in search",
+      "Verify no SQL errors exposed"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 166,
+    "category": "performance",
+    "description": "Dashboard loads within 2 seconds",
+    "steps": [
+      "Clear browser cache",
+      "Navigate to /dashboard",
+      "Measure time to interactive",
+      "Verify under 2 seconds"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 167,
+    "category": "performance",
+    "description": "Jobs API returns within 500ms",
+    "steps": [
+      "Make request to /api/jobs",
+      "Measure response time",
+      "Verify under 500ms for 100 jobs"
+    ],
+    "passes": false,
+    "priority": "medium"
+  },
+  {
+    "id": 168,
+    "category": "functional",
+    "description": "End-to-end: Login, view dashboard, approve job",
+    "steps": [
+      "Start both frontend and backend servers",
+      "Navigate to http://localhost:8000/",
+      "Enter password and login",
+      "Verify dashboard loads with jobs",
+      "Click on Approvals in sidebar",
+      "Verify pending jobs displayed",
+      "Click Approve on first job",
+      "Verify job approved and removed from queue",
+      "Navigate back to dashboard",
+      "Verify job shows approved status"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 169,
+    "category": "functional",
+    "description": "End-to-end: Edit proposal and approve",
+    "steps": [
+      "Login and navigate to /approval",
+      "Click Edit on a pending job",
+      "Modify proposal text",
+      "Save changes",
+      "Click Approve",
+      "Verify changes saved before approval",
+      "Verify job status is approved"
+    ],
+    "passes": false,
+    "priority": "high"
+  },
+  {
+    "id": 170,
+    "category": "functional",
+    "description": "End-to-end: Trigger pipeline from admin",
+    "steps": [
+      "Login and navigate to /admin",
+      "Select Apify as source",
+      "Set limit to 5",
+      "Click Trigger Pipeline",
+      "Verify running status shown",
+      "Wait for completion",
+      "Navigate to dashboard",
+      "Verify new jobs appear"
+    ],
+    "passes": false,
+    "priority": "high"
   }
 ]
