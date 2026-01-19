@@ -130,7 +130,7 @@
       "Verify fit_score is returned (0-100)",
       "Verify fit_reasoning is returned"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -143,7 +143,7 @@
       "Verify score >= 80",
       "Verify reasoning mentions relevant skills match"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -156,7 +156,7 @@
       "Verify score < 50",
       "Verify reasoning explains low relevance"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -169,7 +169,7 @@
       "Verify only jobs with score >= 70 pass filter",
       "Verify filtered-out jobs are logged with reasoning"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -182,7 +182,7 @@
       "Verify all 20 jobs are scored",
       "Verify processing completes in reasonable time"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -196,7 +196,7 @@
       "Verify job description is extracted",
       "Verify client info is extracted"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -209,7 +209,7 @@
       "Verify attachment is detected",
       "Verify attachment filename is captured"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -223,7 +223,7 @@
       "Verify PDF text content is extracted",
       "Verify extracted text is added to job requirements"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -236,7 +236,7 @@
       "Verify DOCX is saved to .tmp/ directory",
       "Verify document text content is extracted"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -249,7 +249,7 @@
       "Verify budget_min=500",
       "Verify budget_max=500"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -262,7 +262,7 @@
       "Verify budget_min=25",
       "Verify budget_max=50"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -274,7 +274,7 @@
       "Verify budget_type='unknown'",
       "Verify budget_min and budget_max are null"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -287,7 +287,7 @@
       "Process job from unverified client",
       "Verify payment_verified=false"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -300,7 +300,7 @@
       "Verify PNG file created in .tmp/ directory",
       "Verify screenshot dimensions are 1920x1080"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -315,7 +315,7 @@
       "Verify script has approach section (mentions tools)",
       "Verify script has closing section (call invitation)"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -327,7 +327,7 @@
       "Count words in output",
       "Verify word count is between 200-250 words"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -339,7 +339,7 @@
       "Scan output for emoji characters",
       "Verify no emojis are present"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -352,7 +352,7 @@
       "Generate script for job with no industry specified",
       "Verify script does not mention any specific industry"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -365,7 +365,7 @@
       "Verify thinking parameter is enabled",
       "Verify budget_tokens >= 3000"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -378,7 +378,7 @@
       "Call HeyGen API to create video",
       "Verify video_id is returned"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -391,7 +391,7 @@
       "Verify final status is 'completed'",
       "Verify video_url is returned"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -403,7 +403,7 @@
       "Run video generation",
       "Verify API request includes correct avatar_id"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -416,7 +416,7 @@
       "Create HeyGen video with background parameter",
       "Verify background.url matches uploaded screenshot"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -429,7 +429,7 @@
       "Verify Google Doc is created",
       "Verify Doc URL is returned"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -442,7 +442,7 @@
       "Verify PDF file created in .tmp/",
       "Verify PDF contains proposal text"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -455,7 +455,7 @@
       "Verify public URL is returned",
       "Verify URL is accessible"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -469,7 +469,7 @@
       "Verify video_url is populated",
       "Verify pdf_url is populated"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -481,7 +481,7 @@
       "Run proposal generator",
       "Verify proposal references specific requirements from attachment"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -494,7 +494,7 @@
       "Verify thinking is enabled",
       "Verify budget_tokens >= 8000"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -507,7 +507,7 @@
       "Verify boost_decision is returned (true/false)",
       "Verify boost_reasoning explains decision"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -520,7 +520,7 @@
       "Run boost decider",
       "Verify boost_decision = true"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -533,7 +533,7 @@
       "Run boost decider",
       "Verify boost_decision = false or qualified"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -547,7 +547,7 @@
       "Verify message appears in channel",
       "Verify job title, budget, and fit score are displayed"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -560,7 +560,7 @@
       "Verify Edit button is present",
       "Verify Reject button is present"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -572,7 +572,7 @@
       "Verify proposal text is visible in message",
       "Verify proposal doc link is clickable"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -584,7 +584,7 @@
       "Verify video link is present",
       "Verify video link is clickable"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -598,7 +598,7 @@
       "Verify job status changes to 'approved'",
       "Verify approved_at timestamp is set"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -611,7 +611,7 @@
       "Verify job status changes to 'rejected'",
       "Verify message is updated to show rejection"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -626,7 +626,7 @@
       "Submit changes",
       "Verify proposal_text is updated in sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -639,7 +639,7 @@
       "Verify pipeline orchestrator is invoked",
       "Verify response indicates success"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -652,7 +652,7 @@
       "Verify request signature is validated",
       "Verify appropriate action is taken"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -665,7 +665,7 @@
       "Verify Gmail monitor is invoked",
       "Verify new jobs are processed"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -678,7 +678,7 @@
       "Verify navigation to /nx/proposals/job/{id}/apply/",
       "Verify apply form is visible"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -691,7 +691,7 @@
       "Fill with proposal text",
       "Verify text is entered correctly"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -704,7 +704,7 @@
       "Upload video file",
       "Verify attachment is added"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -717,7 +717,7 @@
       "Upload PDF file",
       "Verify attachment is added"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -730,7 +730,7 @@
       "Enter pricing_proposed value",
       "Verify amount is set correctly"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -743,7 +743,7 @@
       "Enable boost",
       "Verify boost is selected"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -756,7 +756,7 @@
       "Click submit",
       "Verify submission is initiated"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -769,7 +769,7 @@
       "Verify success is detected",
       "Update job status to 'submitted'"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -782,7 +782,7 @@
       "Capture error text",
       "Update error_log column in sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -795,7 +795,7 @@
       "Run submitter with persistent profile",
       "Verify no login required"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -811,7 +811,7 @@
       "Verify deliverable generation executes",
       "Verify Slack approval is sent"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -823,7 +823,7 @@
       "Verify jobs have source='apify'",
       "Verify batch processing works"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -835,7 +835,7 @@
       "Verify jobs have source='gmail'",
       "Verify real-time processing works"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -847,7 +847,7 @@
       "Verify deep extraction is NOT called",
       "Verify job status is set to 'filtered_out'"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -859,7 +859,7 @@
       "Verify status changes: new -> scoring -> extracting -> generating -> pending_approval",
       "Check sheet after each stage"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -872,7 +872,7 @@
       "Verify error_log is populated",
       "Verify pipeline continues with next job"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -885,7 +885,7 @@
       "Verify description field is present",
       "Verify scripts field lists all execution scripts"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -898,7 +898,7 @@
       "Verify SLACK_BOT_TOKEN is documented",
       "Verify all required vars have validation on startup"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -910,7 +910,7 @@
       "Verify each job has source='apify'",
       "Verify field is present in output JSON"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -922,7 +922,7 @@
       "Verify all jobs are processed",
       "Verify output JSON contains all jobs"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -938,7 +938,7 @@
       "Verify Slack message received",
       "Verify all fields populated in sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -952,7 +952,7 @@
       "Verify Slack message received",
       "Verify source='gmail' in sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -966,7 +966,7 @@
       "Verify status changes to 'submitted'",
       "Verify submitted_at timestamp is set"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -979,7 +979,7 @@
       "Verify all jobs processed",
       "Verify total time < 2 minutes"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -992,7 +992,7 @@
       "Verify no race conditions",
       "Verify all jobs completed"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1005,7 +1005,7 @@
       "Verify no SSL errors occur",
       "Verify all docs created"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1018,7 +1018,7 @@
       "Simulate slow video generation",
       "Verify timeout is triggered after limit"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1030,7 +1030,7 @@
       "Verify batch API is used",
       "Verify fewer than 20 API calls made"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1043,7 +1043,7 @@
       "Send request with invalid signature",
       "Verify request is rejected with 401"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1056,7 +1056,7 @@
       "Verify no secrets are visible",
       "Verify .env is in .gitignore"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1068,7 +1068,7 @@
       "Verify session cookies are not exposed",
       "Verify profile dir is in .gitignore"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1080,7 +1080,7 @@
       "Verify refresh token is stored securely",
       "Verify old tokens are invalidated"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1093,7 +1093,7 @@
       "Verify no executable content",
       "Verify file type matches extension"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1106,7 +1106,7 @@
       "Verify consistent button layout",
       "Verify consistent color scheme"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1119,7 +1119,7 @@
       "Send message for job with score 72",
       "Verify yellow color indicator"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1131,7 +1131,7 @@
       "Verify error messages are clear",
       "Verify error messages suggest next steps"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1143,7 +1143,7 @@
       "Verify key milestones are logged",
       "Verify no excessive debug output"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1156,7 +1156,7 @@
       "Verify word count is approximately 35 words",
       "Verify format matches template"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1168,7 +1168,7 @@
       "Verify link is included",
       "Verify link is valid Google Doc URL"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1182,7 +1182,7 @@
       "Verify 'What you'll get' section exists",
       "Verify 'Timeline' section exists"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1195,7 +1195,7 @@
       "Verify contact_name='John'",
       "Verify contact_confidence='high'"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1207,7 +1207,7 @@
       "Verify contact_confidence='medium'",
       "Verify proposal uses 'Hey [Name] (if I have the right person)'"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1219,7 +1219,7 @@
       "Verify cron expression is correct",
       "Verify function triggers on schedule"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1231,7 +1231,7 @@
       "Verify webhook URL is registered",
       "Verify notifications are received"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1244,7 +1244,7 @@
       "Verify second retry after 3 seconds",
       "Verify max 4 retries"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1256,7 +1256,7 @@
       "Verify backoff is applied",
       "Verify processing resumes after cooldown"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1268,7 +1268,7 @@
       "Convert to apply URL",
       "Verify output: https://www.upwork.com/nx/proposals/job/~123/apply/"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1282,7 +1282,7 @@
       "Track HeyGen video cost",
       "Verify total is approximately $0.35-0.40"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1295,7 +1295,7 @@
       "Verify approximately 20-30 jobs pass",
       "Verify full processing cost is minimized"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   }
 ]

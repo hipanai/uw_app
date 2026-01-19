@@ -38,9 +38,16 @@ playwright-report/
 test-results/
 .playwright/
 
-# Browser profiles (contain session data)
+# Browser profiles (contain session data - Feature #82)
 browser_profile/
 user_data/
+playwright_profile/
+upwork_profile/
+**/Default/Cookies
+**/Default/Cookies-journal
+**/Default/Login Data*
+**/Default/Session Storage/
+**/Default/Local Storage/
 
 # Logs
 *.log

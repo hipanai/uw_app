@@ -214,6 +214,7 @@ def format_job(job: dict) -> dict:
             'feedback_score': stats.get('feedbackRate', 0),
         },
         'is_featured': job.get('isFeatured', False),
+        'source': 'apify',  # Feature #70: Add source field for tracking job origin
     }
 
 

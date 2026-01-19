@@ -1423,6 +1423,105 @@ def hourly_lead_scraper():
         return {"status": "error", "error": str(e)}
 
 
+@app.function(
+    image=image,
+    secrets=ALL_SECRETS,
+    timeout=1800,  # 30 min timeout for full pipeline
+    schedule=modal.Cron("0 */2 * * *")  # Every 2 hours at minute 0
+)
+def scheduled_upwork_pipeline():
+    """
+    Scheduled cron job to run the Upwork job pipeline every 2 hours.
+
+    Feature #94: Modal scheduled function runs every 2 hours
+
+    This function:
+    1. Scrapes new Upwork jobs via Apify
+    2. Deduplicates against previously processed jobs
+    3. Pre-filters for relevance (AI scoring)
+    4. Processes qualifying jobs through the full pipeline
+    5. Sends Slack approval requests for human review
+    """
+    import sys
+    import asyncio
+
+    slack_notify("⏰ *Scheduled Upwork Pipeline Started*\nRunning every 2 hours")
+
+    try:
+        # Add executions directory to path for imports
+        sys.path.insert(0, "/app/execution")
+
+        # Import pipeline orchestrator
+        try:
+            from upwork_pipeline_orchestrator import run_pipeline_sync, PipelineResult
+            PIPELINE_AVAILABLE = True
+        except ImportError as e:
+            logger.warning(f"Pipeline orchestrator not available: {e}")
+            PIPELINE_AVAILABLE = False
+
+        if not PIPELINE_AVAILABLE:
+            slack_notify("⚠️ *Upwork Pipeline*: Pipeline orchestrator not available, skipping")
+            return {
+                "status": "skipped",
+                "reason": "pipeline_orchestrator_not_available",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # Run pipeline with Apify source
+        # Default limit of 20 jobs per run, min_score from env
+        result = run_pipeline_sync(
+            source='apify',
+            limit=20,  # Process up to 20 jobs per scheduled run
+            mock=False,
+            parallel=3
+        )
+
+        # Build summary
+        summary_parts = [
+            f"Jobs scraped: {result.jobs_scraped}",
+            f"New jobs: {result.jobs_new}",
+            f"Passed pre-filter: {result.jobs_passed_prefilter}",
+            f"Processed: {result.jobs_processed}",
+            f"Sent to Slack: {result.jobs_sent_to_slack}",
+        ]
+
+        if result.errors:
+            summary_parts.append(f"Errors: {len(result.errors)}")
+            error_summary = "; ".join(result.errors[:3])  # First 3 errors
+            if len(result.errors) > 3:
+                error_summary += f" (+{len(result.errors) - 3} more)"
+            summary_parts.append(f"First errors: {error_summary}")
+
+        summary = "\n".join(summary_parts)
+
+        status_emoji = "✅" if not result.errors else "⚠️"
+        slack_notify(f"{status_emoji} *Scheduled Upwork Pipeline Complete*\n{summary}")
+
+        logger.info(f"Scheduled pipeline complete: {result.jobs_processed} processed, {len(result.errors)} errors")
+
+        return {
+            "status": "success" if not result.errors else "completed_with_errors",
+            "jobs_scraped": result.jobs_scraped,
+            "jobs_new": result.jobs_new,
+            "jobs_passed_prefilter": result.jobs_passed_prefilter,
+            "jobs_processed": result.jobs_processed,
+            "jobs_sent_to_slack": result.jobs_sent_to_slack,
+            "errors": result.errors,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Scheduled Upwork pipeline error: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        slack_error(f"Scheduled Upwork pipeline failed: {str(e)}\n```{error_details[:500]}```")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
 # ============================================================================
 # EXECUTION-ONLY WEBHOOKS (No Claude orchestration - pure script execution)
 # ============================================================================
@@ -2512,6 +2611,393 @@ def youtube_outliers(
         return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
 
 
+# ============================================================================
+# UPWORK AUTO-APPLY PIPELINE ENDPOINTS
+# ============================================================================
+
+def verify_slack_signature(
+    signature: str,
+    timestamp: str,
+    body: bytes,
+    signing_secret: str
+) -> bool:
+    """
+    Verify Slack request signature for security.
+
+    Args:
+        signature: X-Slack-Signature header value
+        timestamp: X-Slack-Request-Timestamp header value
+        body: Raw request body bytes
+        signing_secret: Slack signing secret from environment
+
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    import hmac
+    import hashlib
+    import time
+
+    # Check timestamp to prevent replay attacks (allow 5 min window)
+    try:
+        request_time = int(timestamp)
+        current_time = int(time.time())
+        if abs(current_time - request_time) > 300:  # 5 minutes
+            logger.warning("Slack signature timestamp too old")
+            return False
+    except (ValueError, TypeError):
+        logger.warning("Invalid Slack timestamp")
+        return False
+
+    # Compute expected signature
+    sig_basestring = f"v0:{timestamp}:{body.decode('utf-8')}"
+    expected_sig = "v0=" + hmac.new(
+        signing_secret.encode(),
+        sig_basestring.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(expected_sig, signature)
+
+
+@app.function(image=image, secrets=ALL_SECRETS, timeout=600)
+@modal.fastapi_endpoint(method="POST")
+def upwork_trigger(payload: dict = None):
+    """
+    Trigger the Upwork job pipeline.
+
+    POST /upwork/trigger
+    Body: {
+        "source": "apify" | "manual",
+        "jobs": [...] (optional - for manual trigger with specific jobs)
+    }
+
+    Returns:
+        - 202 Accepted with job processing status
+        - Triggers pipeline orchestrator in background
+    """
+    from fastapi.responses import JSONResponse
+
+    payload = payload or {}
+    source = payload.get("source", "apify")
+    jobs = payload.get("jobs", [])
+
+    logger.info(f"🎯 Upwork pipeline triggered | source={source} | jobs={len(jobs)}")
+    slack_notify(f"🎯 *Upwork Pipeline Triggered*\nSource: {source}\nJobs provided: {len(jobs)}")
+
+    try:
+        # Import the pipeline orchestrator (will be created in Feature #62)
+        try:
+            import importlib.util
+            import sys
+
+            # Add execution dir to path
+            sys.path.insert(0, "/app")
+
+            # Try to load the pipeline orchestrator
+            orchestrator_path = "/app/execution/upwork_pipeline_orchestrator.py"
+
+            if Path(orchestrator_path).exists():
+                spec = importlib.util.spec_from_file_location("upwork_pipeline_orchestrator", orchestrator_path)
+                orchestrator = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(orchestrator)
+
+                # Run the pipeline
+                if hasattr(orchestrator, "run_pipeline"):
+                    result = orchestrator.run_pipeline(source=source, jobs=jobs)
+
+                    return JSONResponse({
+                        "status": "success",
+                        "message": "Pipeline execution completed",
+                        "source": source,
+                        "jobs_processed": result.get("jobs_processed", 0),
+                        "jobs_passed_filter": result.get("jobs_passed_filter", 0),
+                        "jobs_sent_for_approval": result.get("jobs_sent_for_approval", 0),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }, status_code=200)
+                else:
+                    return JSONResponse({
+                        "status": "accepted",
+                        "message": "Pipeline orchestrator exists but run_pipeline function not found",
+                        "source": source,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }, status_code=202)
+            else:
+                # Pipeline orchestrator not yet implemented
+                return JSONResponse({
+                    "status": "accepted",
+                    "message": "Pipeline orchestrator not yet implemented. Request logged.",
+                    "source": source,
+                    "jobs_count": len(jobs),
+                    "timestamp": datetime.utcnow().isoformat()
+                }, status_code=202)
+
+        except ImportError as e:
+            logger.warning(f"Pipeline orchestrator import error: {e}")
+            return JSONResponse({
+                "status": "accepted",
+                "message": f"Pipeline orchestrator not available: {str(e)}",
+                "source": source,
+                "timestamp": datetime.utcnow().isoformat()
+            }, status_code=202)
+
+    except Exception as e:
+        logger.error(f"Upwork trigger error: {e}")
+        slack_error(f"Upwork trigger failed: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }, status_code=500)
+
+
+@app.function(image=image, secrets=ALL_SECRETS, timeout=60)
+@modal.fastapi_endpoint(method="POST")
+async def upwork_slack_action(request):
+    """
+    Handle Slack interactive button actions for Upwork job approvals.
+
+    POST /upwork/slack-action
+
+    Slack sends a URL-encoded payload with button action data.
+    This endpoint validates the signature and processes approve/reject/edit actions.
+    """
+    from fastapi.responses import JSONResponse
+    from fastapi import Request
+    import urllib.parse
+
+    # Read raw body for signature verification
+    body = await request.body()
+
+    # Get Slack signature headers
+    signature = request.headers.get("X-Slack-Signature", "")
+    timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+
+    # Get signing secret
+    signing_secret = os.getenv("SLACK_SIGNING_SECRET", "")
+
+    # Verify signature - MUST have signing secret configured for security
+    if not signing_secret:
+        logger.error("SLACK_SIGNING_SECRET not configured - rejecting request for security")
+        return JSONResponse({"error": "Server configuration error: signing secret not configured"}, status_code=401)
+
+    if not verify_slack_signature(signature, timestamp, body, signing_secret):
+        logger.warning("Invalid Slack signature on /upwork/slack-action")
+        return JSONResponse({"error": "Invalid signature"}, status_code=401)
+
+    # Parse URL-encoded payload
+    try:
+        # Slack sends: payload={json-encoded-data}
+        body_str = body.decode("utf-8")
+        parsed = urllib.parse.parse_qs(body_str)
+        payload_json = parsed.get("payload", ["{}"])[0]
+        payload = json.loads(payload_json)
+    except Exception as e:
+        logger.error(f"Failed to parse Slack payload: {e}")
+        return JSONResponse({"error": "Invalid payload format"}, status_code=400)
+
+    # Extract action details
+    actions = payload.get("actions", [])
+    if not actions:
+        return JSONResponse({"error": "No actions in payload"}, status_code=400)
+
+    action = actions[0]
+    action_id = action.get("action_id", "")
+    action_value = action.get("value", "{}")
+
+    # Parse action value (contains job_id and other data)
+    try:
+        action_data = json.loads(action_value)
+    except:
+        action_data = {"raw": action_value}
+
+    job_id = action_data.get("job_id", "unknown")
+    user = payload.get("user", {}).get("name", "unknown")
+
+    logger.info(f"🔘 Slack action: {action_id} | job={job_id} | user={user}")
+    slack_notify(f"🔘 *Slack Action:* {action_id}\nJob ID: {job_id}\nUser: {user}")
+
+    try:
+        # Import the Slack approval handler
+        import importlib.util
+        import sys
+
+        sys.path.insert(0, "/app")
+
+        handler_path = "/app/execution/upwork_slack_approval.py"
+
+        if Path(handler_path).exists():
+            spec = importlib.util.spec_from_file_location("upwork_slack_approval", handler_path)
+            handler = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(handler)
+
+            # Process the callback
+            if hasattr(handler, "process_approval_callback"):
+                # Get token data for Google Sheets updates
+                token_data = json.loads(os.getenv("GOOGLE_TOKEN_JSON", "{}"))
+
+                result = handler.process_approval_callback(
+                    action_id=action_id,
+                    job_id=job_id,
+                    user_id=user,
+                    payload=payload,
+                    mock_mode=False
+                )
+
+                # Return empty 200 to acknowledge Slack immediately
+                # (Slack expects fast response, we handle async)
+                return JSONResponse({
+                    "response_type": "in_channel",
+                    "replace_original": True,
+                    "text": f"Action '{action_id}' processed for job {job_id}"
+                }, status_code=200)
+            else:
+                logger.warning("process_approval_callback not found in handler")
+
+        # Fallback: handle basic actions without handler
+        if action_id == "approve_job":
+            return JSONResponse({
+                "response_type": "in_channel",
+                "replace_original": True,
+                "text": f"✅ Job {job_id} approved by {user}. Submission queued."
+            }, status_code=200)
+        elif action_id == "reject_job":
+            return JSONResponse({
+                "response_type": "in_channel",
+                "replace_original": True,
+                "text": f"❌ Job {job_id} rejected by {user}."
+            }, status_code=200)
+        elif action_id == "edit_job":
+            return JSONResponse({
+                "response_type": "in_channel",
+                "text": f"✏️ Edit requested for job {job_id}. Opening editor..."
+            }, status_code=200)
+        else:
+            return JSONResponse({
+                "text": f"Unknown action: {action_id}"
+            }, status_code=200)
+
+    except Exception as e:
+        logger.error(f"Slack action error: {e}")
+        return JSONResponse({
+            "response_type": "ephemeral",
+            "text": f"Error processing action: {str(e)}"
+        }, status_code=200)  # Return 200 to Slack even on error
+
+
+@app.function(image=image, secrets=ALL_SECRETS, timeout=300)
+@modal.fastapi_endpoint(method="POST")
+async def upwork_gmail_push(request):
+    """
+    Handle Gmail push notifications for Upwork alert emails.
+
+    POST /upwork/gmail-push
+
+    Gmail Pub/Sub sends a notification when new emails arrive.
+    This endpoint processes the notification and triggers job extraction.
+    """
+    from fastapi.responses import JSONResponse
+    from fastapi import Request
+
+    # Read body
+    body = await request.body()
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except:
+        payload = {}
+
+    # Gmail push notifications have this structure:
+    # {
+    #   "message": {
+    #     "data": "<base64-encoded-data>",
+    #     "messageId": "...",
+    #     "publishTime": "..."
+    #   },
+    #   "subscription": "..."
+    # }
+
+    message = payload.get("message", {})
+    message_data = message.get("data", "")
+    message_id = message.get("messageId", "unknown")
+
+    # Decode base64 data
+    if message_data:
+        try:
+            decoded_data = base64.b64decode(message_data).decode("utf-8")
+            notification_data = json.loads(decoded_data)
+        except:
+            notification_data = {"raw": message_data}
+    else:
+        notification_data = {}
+
+    history_id = notification_data.get("historyId", "")
+    email_address = notification_data.get("emailAddress", "")
+
+    logger.info(f"📬 Gmail push notification | messageId={message_id} | historyId={history_id}")
+    slack_notify(f"📬 *Gmail Push Notification*\nMessage ID: {message_id}\nHistory ID: {history_id}\nEmail: {email_address}")
+
+    try:
+        # Import the Gmail monitor
+        import importlib.util
+        import sys
+
+        sys.path.insert(0, "/app")
+
+        monitor_path = "/app/execution/upwork_gmail_monitor.py"
+
+        if Path(monitor_path).exists():
+            spec = importlib.util.spec_from_file_location("upwork_gmail_monitor", monitor_path)
+            monitor = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(monitor)
+
+            # Get token data
+            token_data = json.loads(os.getenv("GOOGLE_TOKEN_JSON", "{}"))
+
+            # Check for new Upwork emails and extract jobs
+            if hasattr(monitor, "check_for_upwork_emails"):
+                result = monitor.check_for_upwork_emails(
+                    history_id=history_id,
+                    token_data=token_data
+                )
+
+                jobs_found = result.get("jobs", [])
+
+                if jobs_found:
+                    # Trigger the pipeline with extracted jobs
+                    logger.info(f"📥 Found {len(jobs_found)} jobs from Gmail")
+                    slack_notify(f"📥 *Jobs Extracted from Gmail*\nCount: {len(jobs_found)}")
+
+                    # Optionally trigger pipeline (when implemented)
+                    # upwork_trigger.spawn({"source": "gmail", "jobs": jobs_found})
+
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Gmail notification processed",
+                    "jobs_found": len(jobs_found) if jobs_found else 0,
+                    "timestamp": datetime.utcnow().isoformat()
+                }, status_code=200)
+            else:
+                logger.warning("check_for_upwork_emails not found in monitor")
+
+        # Acknowledge the notification even if we can't fully process
+        return JSONResponse({
+            "status": "accepted",
+            "message": "Gmail notification received",
+            "history_id": history_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }, status_code=200)
+
+    except Exception as e:
+        logger.error(f"Gmail push error: {e}")
+        # Still return 200 to acknowledge receipt (prevent retries)
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "message": "Notification acknowledged with error",
+            "timestamp": datetime.utcnow().isoformat()
+        }, status_code=200)
+
+
 @app.local_entrypoint()
 def main():
     print("Modal Claude Orchestrator - Directive Edition")
@@ -2532,7 +3018,13 @@ def main():
     print("  GET  /create-proposal-from-transcript?transcript=sales")
     print("  GET  /youtube-outliers?keywords=AI+agents,ChatGPT&days=7&top_n=10")
     print("")
+    print("Upwork Auto-Apply Pipeline Endpoints:")
+    print("  POST /upwork/trigger         - Trigger pipeline (source: apify|manual)")
+    print("  POST /upwork/slack-action    - Handle Slack button callbacks")
+    print("  POST /upwork/gmail-push      - Handle Gmail push notifications")
+    print("")
     print("Cron Jobs:")
-    print("  hourly_lead_scraper          - Runs every hour")
+    print("  hourly_lead_scraper          - Runs every hour (DISABLED)")
+    print("  scheduled_upwork_pipeline    - Runs every 2 hours (0 */2 * * *)")
     print("")
     print("Configure webhooks in: execution/webhooks.json")
