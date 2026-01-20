@@ -1682,7 +1682,26 @@ Execute the directive now."""
 
 @app.get("/")
 async def root():
-    """Server info."""
+    """Server info or frontend."""
+    # Serve frontend if available
+    frontend_index = Path(__file__).parent.parent / "static" / "frontend" / "index.html"
+    if frontend_index.exists():
+        return FileResponse(str(frontend_index))
+    # Fallback to JSON info
+    return {
+        "service": "Claude Orchestrator (Local)",
+        "status": "running",
+        "endpoints": {
+            "webhook": "POST /webhook/{slug}",
+            "list": "GET /webhooks",
+            "api": "/api/*"
+        }
+    }
+
+
+@app.get("/api/info")
+async def api_info():
+    """Server info (JSON)."""
     return {
         "service": "Claude Orchestrator (Local)",
         "status": "running",
