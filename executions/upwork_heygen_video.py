@@ -114,6 +114,11 @@ class HeyGenClient:
         if not effective_avatar_id:
             raise ValueError("avatar_id must be provided or HEYGEN_AVATAR_ID must be set")
 
+        # Get voice_id from env if not provided
+        effective_voice_id = voice_id or os.getenv("HEYGEN_VOICE_ID")
+        if not effective_voice_id:
+            raise ValueError("voice_id must be provided or HEYGEN_VOICE_ID must be set")
+
         # Build the video input
         video_input = {
             "character": {
@@ -123,13 +128,10 @@ class HeyGenClient:
             },
             "voice": {
                 "type": "text",
-                "input_text": script
+                "input_text": script,
+                "voice_id": effective_voice_id
             }
         }
-
-        # Add voice_id if provided
-        if voice_id:
-            video_input["voice"]["voice_id"] = voice_id
 
         # Add background
         if background_url:
