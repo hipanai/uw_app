@@ -362,12 +362,18 @@ class AsyncHeyGenClient:
         background_url: Optional[str] = None,
         background_color: str = "#FFFFFF",
         width: int = DEFAULT_WIDTH,
-        height: int = DEFAULT_HEIGHT
+        height: int = DEFAULT_HEIGHT,
+        voice_id: Optional[str] = None
     ) -> VideoGenerationResult:
         """Create a HeyGen video asynchronously."""
         effective_avatar_id = avatar_id or self.avatar_id
         if not effective_avatar_id:
             raise ValueError("avatar_id must be provided or HEYGEN_AVATAR_ID must be set")
+
+        # Get voice_id from env if not provided
+        effective_voice_id = voice_id or os.getenv("HEYGEN_VOICE_ID")
+        if not effective_voice_id:
+            raise ValueError("voice_id must be provided or HEYGEN_VOICE_ID must be set")
 
         video_input = {
             "character": {
@@ -377,7 +383,8 @@ class AsyncHeyGenClient:
             },
             "voice": {
                 "type": "text",
-                "input_text": script
+                "input_text": script,
+                "voice_id": effective_voice_id
             }
         }
 
