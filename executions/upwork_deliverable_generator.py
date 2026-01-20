@@ -739,7 +739,7 @@ async def generate_heygen_video_async(
             job_snapshot_url=screenshot_url
         )
 
-        return result.video_url if result and result.success else None
+        return result.video_url if result and result.video_url else None
 
     except ImportError as e:
         logger.warning(f"HeyGen module not available: {e}")
