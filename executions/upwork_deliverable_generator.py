@@ -729,13 +729,13 @@ async def generate_heygen_video_async(
         job_analysis = analyze_job(job_dict)
         script_result = await generate_video_script_async(job_dict, job_analysis)
 
-        if not script_result or not script_result.script:
+        if not script_result or not script_result.script_text:
             logger.error("Failed to generate video script")
             return None
 
         # Generate the video
         result = await create_heygen_video_async(
-            script=script_result.script,
+            script=script_result.script_text,
             background_url=screenshot_url
         )
 
