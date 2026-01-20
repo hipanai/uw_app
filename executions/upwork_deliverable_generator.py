@@ -413,10 +413,6 @@ Return ONLY the proposal text."""
     response = anthropic_client.messages.create(
         model="claude-opus-4-5-20251101",
         max_tokens=10000,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 8000
-        },
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -691,10 +687,6 @@ Return ONLY the cover letter text."""
     response = anthropic_client.messages.create(
         model="claude-opus-4-5-20251101",
         max_tokens=500,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 5000
-        },
         messages=[{"role": "user", "content": prompt}]
     )
 

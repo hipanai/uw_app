@@ -826,7 +826,7 @@ async def run_pipeline_async(
 
                     for job, boost in zip(pipeline_jobs, boost_results):
                         job.boost_decision = boost.boost_decision
-                        job.boost_reasoning = boost.reasoning
+                        job.boost_reasoning = boost.boost_reasoning
                         # Use midpoint of budget range for pricing
                         if job.budget_min and job.budget_max:
                             job.pricing_proposed = (job.budget_min + job.budget_max) / 2
