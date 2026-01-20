@@ -29,6 +29,8 @@ export interface Job {
   payment_verified: boolean;
   fit_score: number | null;
   fit_reasoning: string | null;
+  score_reasoning: string | null;
+  posted_date: string | null;
   proposal_doc_url: string | null;
   proposal_text: string | null;
   video_url: string | null;
