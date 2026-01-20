@@ -856,12 +856,12 @@ async def run_pipeline_async(
             if SLACK_AVAILABLE and not mock:
                 try:
                     slack_result = send_approval_message(job.to_dict(), mock=False)
-                    if slack_result.get('success'):
-                        job.slack_message_ts = slack_result.get('message_ts')
+                    if slack_result.success:
+                        job.slack_message_ts = slack_result.message_ts
                         result.jobs_sent_to_slack += 1
                         logger.info(f"Sent Slack approval for job {job.job_id}")
                     else:
-                        job.error_log.append(f"Slack error: {slack_result.get('error')}")
+                        job.error_log.append(f"Slack error: {slack_result.error}")
                 except Exception as e:
                     job.error_log.append(f"Slack error: {str(e)}")
             elif mock:
