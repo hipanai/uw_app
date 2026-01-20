@@ -736,7 +736,7 @@ async def generate_heygen_video_async(
         # Generate the video
         result = await create_heygen_video_async(
             script=script_result.script_text,
-            background_url=screenshot_url
+            job_snapshot_url=screenshot_url
         )
 
         return result.video_url if result and result.success else None
