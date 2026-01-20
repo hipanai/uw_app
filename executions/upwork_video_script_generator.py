@@ -3,7 +3,7 @@
 Upwork Video Script Generator
 
 Generates video cover letter scripts for HeyGen video generation.
-Uses Opus 4.5 with extended thinking for high-quality, personalized scripts.
+Uses Opus 4.5 for high-quality, personalized scripts.
 
 The script follows the template structure:
 1. Opening (10-15 sec): Reference job details + relevant results
@@ -284,18 +284,14 @@ CRITICAL RULES:
 
 Return ONLY the script text, ready to be spoken. No headers, no formatting markers, just the words."""
 
-    # Call Opus 4.5 with extended thinking
+    # Call Opus 4.5
     response = anthropic_client.messages.create(
         model="claude-opus-4-5-20251101",
         max_tokens=1500,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 3000
-        },
         messages=[{"role": "user", "content": prompt}]
     )
 
-    # Extract text from response (skip thinking blocks)
+    # Extract text from response
     script_text = ""
     for block in response.content:
         if block.type == "text":
