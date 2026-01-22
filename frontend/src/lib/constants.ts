@@ -9,7 +9,9 @@ export const STATUS_COLORS: Record<JobStatus, string> = {
   pending_approval: 'bg-yellow-100 text-yellow-800',
   approved: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
+  submitting: 'bg-orange-100 text-orange-800',
   submitted: 'bg-emerald-100 text-emerald-800',
+  submission_failed: 'bg-red-200 text-red-900',
   filtered_out: 'bg-gray-100 text-gray-800',
   error: 'bg-red-200 text-red-900',
 };
@@ -22,7 +24,9 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
   pending_approval: 'Pending',
   approved: 'Approved',
   rejected: 'Rejected',
+  submitting: 'Submitting',
   submitted: 'Submitted',
+  submission_failed: 'Failed',
   filtered_out: 'Filtered',
   error: 'Error',
 };

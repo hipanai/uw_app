@@ -40,7 +40,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,7 +80,7 @@ app = FastAPI(title="Claude Orchestrator (Local)", version="1.0")
 # CORS middleware for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://localhost:5175"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -269,6 +269,11 @@ def get_all_jobs_from_sheet() -> List[Dict]:
 
         # Convert to proper types
         for record in records:
+            # IMPORTANT: Convert job_id to string to avoid JavaScript integer precision loss
+            # Job IDs like 2013368902031153977 exceed JavaScript's MAX_SAFE_INTEGER (9007199254740991)
+            if record.get('job_id'):
+                record['job_id'] = str(record['job_id'])
+
             # Convert numeric fields
             for field in ['budget_min', 'budget_max', 'client_spent', 'fit_score', 'client_hires']:
                 if record.get(field) and record[field] != '':
@@ -288,6 +293,14 @@ def get_all_jobs_from_sheet() -> List[Dict]:
     except Exception as e:
         logger.error(f"Failed to get jobs from sheet: {e}")
         return []
+
+def get_job_from_sheet(job_id: str) -> Optional[Dict]:
+    """Get a single job from Google Sheet by ID."""
+    jobs = get_all_jobs_from_sheet()
+    for job in jobs:
+        if str(job.get('job_id')) == str(job_id):
+            return job
+    return None
 
 def update_job_in_sheet(job_id: str, updates: Dict[str, Any]) -> bool:
     """Update a job in Google Sheet."""
@@ -339,6 +352,86 @@ def update_job_in_sheet(job_id: str, updates: Dict[str, Any]) -> bool:
     except Exception as e:
         logger.error(f"Failed to update job {job_id}: {e}")
         return False
+
+def delete_job_from_sheet(job_id: str) -> bool:
+    """Delete a job from Google Sheet."""
+    if not UPWORK_PIPELINE_SHEET_ID:
+        return False
+
+    client = get_sheets_client()
+    if not client:
+        return False
+
+    try:
+        spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+
+        # Find the job row
+        all_job_ids = worksheet.col_values(1)
+        row_index = None
+        for i, cell_value in enumerate(all_job_ids):
+            if cell_value == job_id:
+                row_index = i + 1
+                break
+
+        if not row_index:
+            return False
+
+        # Delete the row
+        worksheet.delete_rows(row_index)
+        logger.info(f"Deleted job {job_id} from sheet (row {row_index})")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete job {job_id}: {e}")
+        return False
+
+def delete_jobs_from_sheet(job_ids: List[str]) -> int:
+    """Delete multiple jobs from Google Sheet.
+
+    Args:
+        job_ids: List of job IDs to delete
+
+    Returns:
+        Number of jobs deleted
+    """
+    if not UPWORK_PIPELINE_SHEET_ID or not job_ids:
+        return 0
+
+    client = get_sheets_client()
+    if not client:
+        return 0
+
+    try:
+        spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+
+        # Find all matching rows
+        all_job_ids = worksheet.col_values(1)
+        rows_to_delete = []
+
+        for i, cell_value in enumerate(all_job_ids):
+            if cell_value in job_ids:
+                rows_to_delete.append(i + 1)  # 1-indexed
+
+        if not rows_to_delete:
+            return 0
+
+        # Delete rows from bottom to top to preserve indices
+        rows_to_delete.sort(reverse=True)
+        deleted_count = 0
+
+        for row_index in rows_to_delete:
+            try:
+                worksheet.delete_rows(row_index)
+                deleted_count += 1
+            except Exception as e:
+                logger.error(f"Failed to delete row {row_index}: {e}")
+
+        logger.info(f"Deleted {deleted_count} jobs from sheet")
+        return deleted_count
+    except Exception as e:
+        logger.error(f"Failed to delete jobs: {e}")
+        return 0
 
 def add_jobs_to_sheet(jobs: List[Dict]) -> int:
     """Add new jobs to Google Sheet, skipping duplicates.
@@ -463,6 +556,65 @@ PIPELINE_STATUS = {
     "last_reset_date": datetime.now(timezone.utc).date().isoformat()
 }
 
+# Track active submissions
+SUBMISSION_QUEUE: Dict[str, Dict] = {}  # job_id -> submission status
+
+# Track video generation status
+VIDEO_GENERATION_QUEUE: Dict[str, Dict] = {}  # job_id -> video generation status
+
+def get_submission_status(job_id: str) -> Optional[Dict]:
+    """Get the current submission status for a job."""
+    return SUBMISSION_QUEUE.get(job_id)
+
+def update_submission_status(job_id: str, **kwargs):
+    """Update the submission status for a job."""
+    if job_id not in SUBMISSION_QUEUE:
+        SUBMISSION_QUEUE[job_id] = {
+            "job_id": job_id,
+            "status": "pending",
+            "stage": "queued",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "logs": [],
+            "error": None,
+            "result": None,
+        }
+    SUBMISSION_QUEUE[job_id].update(kwargs)
+    SUBMISSION_QUEUE[job_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+def add_submission_log(job_id: str, message: str):
+    """Add a log entry to a submission."""
+    if job_id in SUBMISSION_QUEUE:
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        SUBMISSION_QUEUE[job_id]["logs"].append(f"[{timestamp}] {message}")
+        logger.info(f"[Submission {job_id[:10]}] {message}")
+
+# Video generation helpers
+def get_video_generation_status(job_id: str) -> Optional[Dict]:
+    """Get the current video generation status for a job."""
+    return VIDEO_GENERATION_QUEUE.get(job_id)
+
+def update_video_generation_status(job_id: str, **kwargs):
+    """Update the video generation status for a job."""
+    if job_id not in VIDEO_GENERATION_QUEUE:
+        VIDEO_GENERATION_QUEUE[job_id] = {
+            "job_id": job_id,
+            "status": "pending",
+            "stage": "queued",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "logs": [],
+            "error": None,
+            "video_url": None,
+        }
+    VIDEO_GENERATION_QUEUE[job_id].update(kwargs)
+    VIDEO_GENERATION_QUEUE[job_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+def add_video_generation_log(job_id: str, message: str):
+    """Add a log entry to video generation."""
+    if job_id in VIDEO_GENERATION_QUEUE:
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        VIDEO_GENERATION_QUEUE[job_id]["logs"].append(f"[{timestamp}] {message}")
+        logger.info(f"[VideoGen {job_id[:10]}] {message}")
+
 def reset_daily_counter():
     """Reset daily counter if it's a new day."""
     today = datetime.now(timezone.utc).date().isoformat()
@@ -478,12 +630,19 @@ class LoginRequest(BaseModel):
     password: str
 
 class PipelineTriggerRequest(BaseModel):
-    source: str = "apify"
+    source: str = "apify"  # apify, gmail, or urls
     limit: int = 10
     keywords: Optional[str] = None  # Comma-separated keywords to filter jobs
     location: Optional[str] = None  # Location filter (e.g., "United States", "Remote")
     run_full_pipeline: bool = False  # If True, run full pipeline (score, extract, generate, approve)
     min_score: int = 70  # Minimum fit score for full pipeline
+    from_date: Optional[str] = None  # Filter jobs posted after this date (YYYY-MM-DD)
+    to_date: Optional[str] = None  # Filter jobs posted before this date (YYYY-MM-DD)
+    min_hourly: Optional[int] = None  # Minimum hourly rate
+    max_hourly: Optional[int] = None  # Maximum hourly rate
+    min_fixed: Optional[int] = None  # Minimum fixed price
+    max_fixed: Optional[int] = None  # Maximum fixed price
+    job_urls: Optional[List[str]] = None  # List of Upwork job URLs to import directly
 
 class ProposalUpdateRequest(BaseModel):
     proposal_text: str
@@ -597,6 +756,55 @@ async def api_get_job(job_id: str, user: dict = Depends(get_current_user)):
 
     raise HTTPException(status_code=404, detail="Job not found")
 
+class BulkDeleteRequest(BaseModel):
+    job_ids: List[str]
+
+@app.delete("/api/jobs/bulk")
+async def api_delete_jobs_bulk(request: BulkDeleteRequest, user: dict = Depends(get_current_user)):
+    """Delete multiple jobs by ID."""
+    if not request.job_ids:
+        raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    deleted_count = delete_jobs_from_sheet(request.job_ids)
+
+    return {
+        "success": True,
+        "message": f"Deleted {deleted_count} of {len(request.job_ids)} jobs",
+        "deleted_count": deleted_count,
+        "requested_count": len(request.job_ids)
+    }
+
+@app.delete("/api/jobs/{job_id}")
+async def api_delete_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Delete a single job by ID."""
+    success = delete_job_from_sheet(job_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Job not found or could not be deleted")
+
+    return {"success": True, "message": f"Job {job_id} deleted", "job_id": job_id}
+
+class JobStatusUpdateRequest(BaseModel):
+    status: str  # new, scoring, extracting, generating, pending_approval, etc.
+
+@app.patch("/api/jobs/{job_id}/status")
+async def api_update_job_status(job_id: str, request: JobStatusUpdateRequest, user: dict = Depends(get_current_user)):
+    """Update a job's status. Useful for resetting filtered jobs to allow reprocessing."""
+    valid_statuses = ['new', 'scoring', 'extracting', 'generating', 'pending_approval',
+                      'approved', 'rejected', 'submitting', 'submitted', 'submission_failed',
+                      'filtered_out', 'error']
+
+    if request.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+
+    success = update_job_in_sheet(job_id, {"status": request.status})
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Job not found or could not be updated")
+
+    logger.info(f"Job {job_id} status updated to {request.status}")
+    return {"success": True, "job_id": job_id, "status": request.status}
+
 # ============================================================================
 # APPROVALS ENDPOINTS
 # ============================================================================
@@ -614,9 +822,15 @@ async def api_get_pending_approvals(user: dict = Depends(get_current_user)):
 
 @app.post("/api/approvals/{job_id}/approve")
 async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
-    """Approve a job for submission."""
+    """Approve a job for submission and start video generation."""
     now = datetime.now(timezone.utc)
 
+    # Get job data for video generation
+    job_data = get_job_from_sheet(job_id)
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Update status to approved
     success = update_job_in_sheet(job_id, {
         "status": "approved",
         "approved_at": now.isoformat()
@@ -625,13 +839,89 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update job")
 
-    logger.info(f"Job {job_id} approved via Web UI")
+    logger.info(f"Job {job_id} approved via Web UI - starting video generation")
+
+    # Start video generation in background thread
+    def generate_video_background():
+        import threading
+        import asyncio
+
+        update_video_generation_status(job_id, status="in_progress", stage="initializing")
+        add_video_generation_log(job_id, "Starting HeyGen video generation...")
+
+        try:
+            # Import deliverable generator
+            sys.path.insert(0, str(Path(__file__).parent))
+            from upwork_deliverable_generator import generate_heygen_video_async, JobData
+
+            # Create JobData from sheet data
+            job = JobData(
+                job_id=str(job_data.get('job_id', '')),
+                title=job_data.get('title', ''),
+                description=job_data.get('description', ''),
+                url=job_data.get('url', ''),
+                skills=job_data.get('skills', []) if isinstance(job_data.get('skills'), list) else [],
+                budget_type=job_data.get('budget_type', 'unknown'),
+                budget_min=job_data.get('budget_min'),
+                budget_max=job_data.get('budget_max'),
+                client_country=job_data.get('client_country'),
+                client_spent=job_data.get('client_spent'),
+                client_hires=job_data.get('client_hires'),
+                payment_verified=job_data.get('payment_verified', False),
+            )
+
+            add_video_generation_log(job_id, "Generating video script from proposal...")
+            update_video_generation_status(job_id, stage="generating_script")
+
+            # Run async video generation
+            async def run_video_gen():
+                return await generate_heygen_video_async(
+                    job=job,
+                    mock=False,
+                    proposal_text=job_data.get('proposal_text', '')
+                )
+
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                add_video_generation_log(job_id, "Calling HeyGen API to generate avatar video...")
+                update_video_generation_status(job_id, stage="heygen_processing")
+
+                video_url = loop.run_until_complete(run_video_gen())
+
+                if video_url:
+                    add_video_generation_log(job_id, f"Video generated successfully!")
+                    update_video_generation_status(job_id, status="completed", stage="done", video_url=video_url)
+
+                    # Update job in sheet with video URL
+                    update_job_in_sheet(job_id, {"video_url": video_url})
+                    add_video_generation_log(job_id, f"Video URL saved to job record")
+                    logger.info(f"Video generated for job {job_id}: {video_url}")
+                else:
+                    add_video_generation_log(job_id, "Video generation returned no URL")
+                    update_video_generation_status(job_id, status="failed", stage="error", error="No video URL returned")
+
+            finally:
+                loop.close()
+
+        except Exception as e:
+            error_msg = str(e)
+            add_video_generation_log(job_id, f"ERROR: {error_msg}")
+            update_video_generation_status(job_id, status="failed", stage="error", error=error_msg)
+            logger.error(f"Video generation failed for job {job_id}: {e}")
+
+    # Start background thread
+    import threading
+    video_thread = threading.Thread(target=generate_video_background, daemon=True)
+    video_thread.start()
 
     return {
         "success": True,
         "job_id": job_id,
         "status": "approved",
-        "approved_at": now.isoformat()
+        "approved_at": now.isoformat(),
+        "video_generation": "started"
     }
 
 @app.post("/api/approvals/{job_id}/reject")
@@ -676,7 +966,7 @@ async def api_update_proposal(
 
 @app.post("/api/approvals/{job_id}/submit")
 async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
-    """Trigger submission for an approved job."""
+    """Trigger actual submission for an approved job using Playwright."""
     # First check job is approved
     jobs = get_all_jobs_from_sheet()
     job = next((j for j in jobs if j.get("job_id") == job_id), None)
@@ -687,33 +977,494 @@ async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
     if job.get("status") != "approved":
         raise HTTPException(status_code=400, detail="Job must be approved before submission")
 
-    now = datetime.now(timezone.utc)
+    # Check if already submitting
+    existing_submission = get_submission_status(job_id)
+    if existing_submission and existing_submission.get("status") == "in_progress":
+        raise HTTPException(status_code=409, detail="Submission already in progress")
 
-    # Update status to submitted
-    success = update_job_in_sheet(job_id, {
-        "status": "submitted",
-        "submitted_at": now.isoformat()
-    })
+    # Get required data from job
+    job_url = job.get("url")
+    proposal_text = job.get("proposal_text")
 
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update job")
+    if not job_url:
+        raise HTTPException(status_code=400, detail="Job URL is missing")
+    if not proposal_text:
+        raise HTTPException(status_code=400, detail="Proposal text is missing")
 
-    PIPELINE_STATUS["jobs_processed_today"] += 1
-    logger.info(f"Job {job_id} submitted via Web UI")
+    # Update status to submitting
+    update_job_in_sheet(job_id, {"status": "submitting"})
+
+    # Initialize submission tracking
+    update_submission_status(job_id, status="in_progress", stage="initializing")
+    add_submission_log(job_id, "Starting submission process...")
+
+    # Run submission in background thread
+    import threading
+
+    def run_submission():
+        try:
+            from upwork_submitter import UpworkSubmitter, SubmissionStatus
+            import asyncio
+
+            # Get browser profile path from env
+            browser_profile = os.getenv("UPWORK_BROWSER_PROFILE", ".tmp/upwork_profile")
+            headless = os.getenv("SUBMISSION_HEADLESS", "true").lower() == "true"
+
+            add_submission_log(job_id, f"Browser profile: {browser_profile}")
+            add_submission_log(job_id, f"Headless mode: {headless}")
+
+            # Get optional attachments
+            video_path = job.get("video_url") if job.get("video_url") and os.path.exists(str(job.get("video_url"))) else None
+            pdf_path = job.get("pdf_url") if job.get("pdf_url") and os.path.exists(str(job.get("pdf_url"))) else None
+
+            # Get pricing info
+            pricing = None
+            if job.get("pricing_proposed"):
+                try:
+                    pricing = float(job.get("pricing_proposed"))
+                except:
+                    pass
+
+            is_hourly = job.get("budget_type") == "hourly"
+            should_boost = job.get("boost_decision", False)
+
+            add_submission_log(job_id, f"Job URL: {job_url}")
+            add_submission_log(job_id, f"Proposal length: {len(proposal_text)} chars")
+            if video_path:
+                add_submission_log(job_id, f"Video attachment: {video_path}")
+            if pdf_path:
+                add_submission_log(job_id, f"PDF attachment: {pdf_path}")
+            if pricing:
+                add_submission_log(job_id, f"Proposed rate: ${pricing} ({'hourly' if is_hourly else 'fixed'})")
+            if should_boost:
+                add_submission_log(job_id, "Boost: enabled")
+
+            async def do_submit():
+                update_submission_status(job_id, stage="launching_browser")
+                add_submission_log(job_id, "Launching browser...")
+
+                async with UpworkSubmitter(
+                    user_data_dir=browser_profile,
+                    headless=headless,
+                    tmp_dir=".tmp",
+                ) as submitter:
+                    update_submission_status(job_id, stage="navigating")
+                    add_submission_log(job_id, "Navigating to apply page...")
+
+                    result = await submitter.navigate_to_apply_page(job_url)
+
+                    if result.status == SubmissionStatus.ERROR:
+                        raise Exception(f"Navigation failed: {result.error}")
+
+                    update_submission_status(job_id, stage="filling_form")
+                    add_submission_log(job_id, "Filling cover letter...")
+
+                    result = await submitter.fill_cover_letter(result, proposal_text)
+
+                    if pricing:
+                        add_submission_log(job_id, "Setting proposed rate...")
+                        result = await submitter.set_proposed_price(result, pricing, is_hourly)
+
+                    if video_path:
+                        add_submission_log(job_id, "Attaching video...")
+                        result = await submitter.attach_file(result, video_path, "video")
+
+                    if pdf_path:
+                        add_submission_log(job_id, "Attaching PDF...")
+                        result = await submitter.attach_file(result, pdf_path, "pdf")
+
+                    if should_boost:
+                        add_submission_log(job_id, "Applying boost...")
+                        result = await submitter.apply_boost(result, True)
+
+                    update_submission_status(job_id, stage="submitting")
+                    add_submission_log(job_id, "Clicking submit button...")
+
+                    result = await submitter.submit_proposal(result)
+
+                    # Capture final screenshot
+                    await submitter.capture_screenshot(result, "final")
+
+                    return result
+
+            result = asyncio.run(do_submit())
+
+            # Process result
+            if result.status == SubmissionStatus.SUCCESS:
+                update_submission_status(
+                    job_id,
+                    status="completed",
+                    stage="success",
+                    result=result.to_dict()
+                )
+                add_submission_log(job_id, f"SUCCESS: {result.confirmation_message or 'Proposal submitted!'}")
+
+                # Update sheet
+                update_job_in_sheet(job_id, {
+                    "status": "submitted",
+                    "submitted_at": datetime.now(timezone.utc).isoformat(),
+                    "error_log": ""
+                })
+                PIPELINE_STATUS["jobs_processed_today"] += 1
+
+            else:
+                error_msg = result.error or "Unknown error"
+                update_submission_status(
+                    job_id,
+                    status="failed",
+                    stage="error",
+                    error=error_msg,
+                    result=result.to_dict()
+                )
+                add_submission_log(job_id, f"FAILED: {error_msg}")
+                if result.error_log:
+                    for err in result.error_log:
+                        add_submission_log(job_id, f"  - {err}")
+
+                # Update sheet with failure
+                update_job_in_sheet(job_id, {
+                    "status": "submission_failed",
+                    "error_log": json.dumps(result.error_log) if result.error_log else error_msg
+                })
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Submission error for {job_id}: {error_msg}")
+            update_submission_status(
+                job_id,
+                status="failed",
+                stage="error",
+                error=error_msg
+            )
+            add_submission_log(job_id, f"ERROR: {error_msg}")
+
+            # Update sheet with failure
+            update_job_in_sheet(job_id, {
+                "status": "submission_failed",
+                "error_log": error_msg
+            })
+
+    # Start background thread
+    thread = threading.Thread(target=run_submission, daemon=True)
+    thread.start()
+
+    logger.info(f"Job {job_id} submission started via Web UI")
 
     return {
         "success": True,
         "job_id": job_id,
-        "status": "submitted",
-        "submitted_at": now.isoformat()
+        "status": "submitting",
+        "message": "Submission started in background"
     }
+
+@app.get("/api/submissions/status/{job_id}")
+async def api_get_submission_status(job_id: str, user: dict = Depends(get_current_user)):
+    """Get the current submission status for a job."""
+    status = get_submission_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="No submission found for this job")
+    return status
+
+@app.get("/api/submissions/active")
+async def api_get_active_submissions(user: dict = Depends(get_current_user)):
+    """Get all active/recent submissions."""
+    # Return submissions from last hour
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    active = {
+        job_id: status
+        for job_id, status in SUBMISSION_QUEUE.items()
+        if status.get("started_at", "") > cutoff
+    }
+    return {"submissions": active, "count": len(active)}
+
+# Video generation status endpoints
+@app.get("/api/video-generation/status/{job_id}")
+async def api_get_video_generation_status(job_id: str, user: dict = Depends(get_current_user)):
+    """Get video generation status for a specific job."""
+    status = get_video_generation_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="No video generation found for this job")
+    return status
+
+@app.get("/api/video-generation/active")
+async def api_get_active_video_generations(user: dict = Depends(get_current_user)):
+    """Get all active/recent video generations."""
+    # Return video generations from last hour
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    active = [
+        {**status, "job_id": job_id}
+        for job_id, status in VIDEO_GENERATION_QUEUE.items()
+        if status.get("started_at", "") > cutoff
+    ]
+    return {"video_generations": active, "count": len(active)}
+
+# ============================================================================
+# SUBMISSION MODE ENDPOINTS
+# ============================================================================
+
+def get_submission_mode() -> str:
+    """Get current submission mode from env."""
+    return os.getenv("SUBMISSION_MODE", "manual")
+
+@app.get("/api/submission-mode")
+async def api_get_submission_mode(user: dict = Depends(get_current_user)):
+    """Get current submission mode."""
+    mode = get_submission_mode()
+    return {
+        "mode": mode,
+        "description": SUBMISSION_MODES.get(mode, "Unknown mode"),
+        "available_modes": [
+            {"value": k, "label": v} for k, v in SUBMISSION_MODES.items()
+        ]
+    }
+
+@app.put("/api/submission-mode")
+async def api_set_submission_mode(
+    request: dict,
+    user: dict = Depends(get_current_user)
+):
+    """Set submission mode."""
+    mode = request.get("mode")
+    if mode not in SUBMISSION_MODES:
+        raise HTTPException(status_code=400, detail=f"Invalid mode. Must be one of: {list(SUBMISSION_MODES.keys())}")
+
+    # Update .env file
+    success = write_env_file({"SUBMISSION_MODE": mode})
+    if success:
+        os.environ["SUBMISSION_MODE"] = mode
+        logger.info(f"Submission mode changed to: {mode}")
+        return {"success": True, "mode": mode, "description": SUBMISSION_MODES[mode]}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update submission mode")
+
+@app.post("/api/auto-process")
+async def api_auto_process_pending_jobs(
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user)
+):
+    """Auto-process all pending jobs based on current submission mode.
+
+    In semi_auto mode: auto-approve and generate videos for all pending jobs
+    In automatic mode: auto-approve, generate videos, and auto-submit all pending jobs
+    """
+    mode = get_submission_mode()
+
+    if mode == "manual":
+        raise HTTPException(
+            status_code=400,
+            detail="Auto-processing is disabled in manual mode. Change to semi_auto or automatic mode first."
+        )
+
+    # Get all pending jobs
+    jobs = get_all_jobs_from_sheet()
+    pending_jobs = [j for j in jobs if j.get("status") == "pending_approval"]
+
+    if not pending_jobs:
+        return {"success": True, "message": "No pending jobs to process", "processed": 0}
+
+    processed_count = 0
+
+    for job_data in pending_jobs:
+        job_id = str(job_data.get("job_id"))
+
+        # Auto-approve
+        now = datetime.now(timezone.utc)
+        update_job_in_sheet(job_id, {
+            "status": "approved",
+            "approved_at": now.isoformat()
+        })
+        logger.info(f"[Auto-{mode}] Job {job_id} auto-approved")
+
+        # Start video generation in background
+        background_tasks.add_task(
+            run_video_generation_and_maybe_submit,
+            job_id,
+            job_data,
+            auto_submit=(mode == "automatic")
+        )
+
+        processed_count += 1
+
+    return {
+        "success": True,
+        "mode": mode,
+        "processed": processed_count,
+        "message": f"Started processing {processed_count} jobs in {mode} mode"
+    }
+
+def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_submit: bool = False):
+    """Background task to generate video and optionally auto-submit."""
+    import asyncio
+
+    update_video_generation_status(job_id, status="in_progress", stage="initializing")
+    add_video_generation_log(job_id, f"Starting auto-processing (auto_submit={auto_submit})...")
+
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from upwork_deliverable_generator import generate_heygen_video_async, JobData
+
+        job = JobData(
+            job_id=str(job_data.get('job_id', '')),
+            title=job_data.get('title', ''),
+            description=job_data.get('description', ''),
+            url=job_data.get('url', ''),
+            skills=job_data.get('skills', []) if isinstance(job_data.get('skills'), list) else [],
+            budget_type=job_data.get('budget_type', 'unknown'),
+            budget_min=job_data.get('budget_min'),
+            budget_max=job_data.get('budget_max'),
+            client_country=job_data.get('client_country'),
+            client_spent=job_data.get('client_spent'),
+            client_hires=job_data.get('client_hires'),
+            payment_verified=job_data.get('payment_verified', False),
+        )
+
+        add_video_generation_log(job_id, "Generating video script from proposal...")
+        update_video_generation_status(job_id, stage="generating_script")
+
+        async def run_video_gen():
+            return await generate_heygen_video_async(
+                job=job,
+                mock=False,
+                proposal_text=job_data.get('proposal_text', '')
+            )
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            add_video_generation_log(job_id, "Calling HeyGen API...")
+            update_video_generation_status(job_id, stage="heygen_processing")
+
+            video_url = loop.run_until_complete(run_video_gen())
+
+            if video_url:
+                add_video_generation_log(job_id, "Video generated successfully!")
+                update_video_generation_status(job_id, status="completed", stage="done", video_url=video_url)
+                update_job_in_sheet(job_id, {"video_url": video_url})
+                logger.info(f"[Auto] Video generated for job {job_id}: {video_url}")
+
+                # Auto-submit if in automatic mode
+                if auto_submit:
+                    add_video_generation_log(job_id, "Auto-submitting to Upwork...")
+                    loop.run_until_complete(run_auto_submit(job_id, job_data, video_url))
+            else:
+                add_video_generation_log(job_id, "Video generation returned no URL")
+                update_video_generation_status(job_id, status="failed", stage="error", error="No video URL")
+
+        finally:
+            loop.close()
+
+    except Exception as e:
+        error_msg = str(e)
+        add_video_generation_log(job_id, f"ERROR: {error_msg}")
+        update_video_generation_status(job_id, status="failed", stage="error", error=error_msg)
+        logger.error(f"[Auto] Video generation failed for {job_id}: {e}")
+
+async def run_auto_submit(job_id: str, job_data: dict, video_url: str):
+    """Auto-submit job to Upwork."""
+    try:
+        from upwork_submitter import UpworkSubmitter, SubmissionStatus
+
+        update_submission_status(job_id, status="in_progress", stage="auto_submitting")
+        add_submission_log(job_id, "[AUTO] Starting automatic submission...")
+
+        job_url = job_data.get("url")
+        proposal_text = job_data.get("proposal_text")
+
+        if not job_url or not proposal_text:
+            add_submission_log(job_id, "ERROR: Missing job URL or proposal text")
+            update_submission_status(job_id, status="failed", error="Missing required data")
+            return
+
+        browser_profile = os.getenv("UPWORK_BROWSER_PROFILE", ".tmp/upwork_profile")
+        headless = os.getenv("SUBMISSION_HEADLESS", "true").lower() == "true"
+
+        # Check if video file exists locally
+        video_path = video_url if video_url and os.path.exists(str(video_url)) else None
+        pdf_path = job_data.get("pdf_url") if job_data.get("pdf_url") and os.path.exists(str(job_data.get("pdf_url"))) else None
+
+        pricing = None
+        if job_data.get("pricing_proposed"):
+            try:
+                pricing = float(job_data.get("pricing_proposed"))
+            except:
+                pass
+
+        is_hourly = job_data.get("budget_type") == "hourly"
+        should_boost = job_data.get("boost_decision", False)
+
+        add_submission_log(job_id, f"[AUTO] Launching browser (headless={headless})...")
+        update_submission_status(job_id, stage="launching_browser")
+
+        async with UpworkSubmitter(
+            user_data_dir=browser_profile,
+            headless=headless,
+            tmp_dir=".tmp",
+        ) as submitter:
+            add_submission_log(job_id, "[AUTO] Navigating to apply page...")
+            update_submission_status(job_id, stage="navigating")
+            result = await submitter.navigate_to_apply_page(job_url)
+
+            if result.status == SubmissionStatus.ERROR:
+                raise Exception(f"Navigation failed: {result.error}")
+
+            add_submission_log(job_id, "[AUTO] Filling form...")
+            update_submission_status(job_id, stage="filling_form")
+            result = await submitter.fill_cover_letter(result, proposal_text)
+
+            if pricing:
+                result = await submitter.set_proposed_price(result, pricing, is_hourly)
+
+            if video_path:
+                add_submission_log(job_id, f"[AUTO] Attaching video: {video_path}")
+                result = await submitter.attach_file(result, video_path, "video")
+
+            if pdf_path:
+                add_submission_log(job_id, f"[AUTO] Attaching PDF: {pdf_path}")
+                result = await submitter.attach_file(result, pdf_path, "pdf")
+
+            if should_boost:
+                result = await submitter.apply_boost(result)
+
+            add_submission_log(job_id, "[AUTO] Submitting proposal...")
+            update_submission_status(job_id, stage="submitting")
+            result = await submitter.submit_application(result)
+
+            if result.status == SubmissionStatus.SUCCESS:
+                update_submission_status(job_id, status="completed", stage="done", result=result.to_dict())
+                add_submission_log(job_id, f"[AUTO] SUCCESS: {result.confirmation_message or 'Submitted!'}")
+                update_job_in_sheet(job_id, {
+                    "status": "submitted",
+                    "submitted_at": datetime.now(timezone.utc).isoformat()
+                })
+                PIPELINE_STATUS["jobs_processed_today"] += 1
+            else:
+                error_msg = result.error or "Unknown error"
+                update_submission_status(job_id, status="failed", error=error_msg)
+                add_submission_log(job_id, f"[AUTO] FAILED: {error_msg}")
+                update_job_in_sheet(job_id, {"status": "submission_failed", "error_log": error_msg})
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[AUTO] Submission error for {job_id}: {error_msg}")
+        update_submission_status(job_id, status="failed", error=error_msg)
+        add_submission_log(job_id, f"[AUTO] ERROR: {error_msg}")
+        update_job_in_sheet(job_id, {"status": "submission_failed", "error_log": error_msg})
 
 # ============================================================================
 # ADMIN ENDPOINTS
 # ============================================================================
 
+# Submission mode options
+SUBMISSION_MODES = {
+    "manual": "Manual - Approve each job, then click Submit after video generation",
+    "semi_auto": "Semi-Auto - Auto-approve and generate videos, manual Submit",
+    "automatic": "Automatic - Full automation: approve, generate, and submit"
+}
+
 # Define config items with metadata
 CONFIG_ITEMS = [
+    {"key": "SUBMISSION_MODE", "label": "Submission Mode", "sensitive": False, "editable": True, "description": "Workflow mode: manual, semi_auto, or automatic", "options": ["manual", "semi_auto", "automatic"]},
     {"key": "UPWORK_PIPELINE_SHEET_ID", "label": "Pipeline Sheet ID", "sensitive": False, "editable": True, "description": "Google Sheet ID for job pipeline"},
     {"key": "UPWORK_PROCESSED_IDS_SHEET_ID", "label": "Processed IDs Sheet ID", "sensitive": False, "editable": True, "description": "Google Sheet ID for deduplication"},
     {"key": "PREFILTER_MIN_SCORE", "label": "Min Pre-filter Score", "sensitive": False, "editable": True, "description": "Minimum score (0-100) to proceed with processing"},
@@ -892,7 +1643,158 @@ async def api_trigger_pipeline(
         jobs_added = 0
 
         try:
-            if request.run_full_pipeline:
+            # Handle URL imports specially - need to scrape job details first
+            if request.source == "urls" and request.job_urls:
+                logger.info(f"Processing {len(request.job_urls)} URLs...")
+
+                # Clean and validate URLs
+                valid_urls = []
+                for url in request.job_urls:
+                    url = url.strip()
+                    if not url:
+                        continue
+                    # Normalize URL format
+                    if "/jobs/~" in url or "~" in url:
+                        valid_urls.append(url)
+                    else:
+                        logger.warning(f"Invalid Upwork URL: {url}")
+
+                if not valid_urls:
+                    logger.error("No valid job URLs found")
+                    PIPELINE_STATUS["last_run_status"] = "error"
+                    PIPELINE_STATUS["is_running"] = False
+                    return
+
+                # Use deep extractor to scrape actual job details
+                logger.info(f"Scraping job details from {len(valid_urls)} URLs using Playwright...")
+                jobs = []
+
+                try:
+                    import asyncio
+                    from upwork_deep_extractor import UpworkDeepExtractor, extract_job_id_from_url
+
+                    async def scrape_urls():
+                        extracted_jobs = []
+                        async with UpworkDeepExtractor(headless=True) as extractor:
+                            for url in valid_urls:
+                                logger.info(f"Extracting job from: {url}")
+                                try:
+                                    extracted = await extractor.extract_job(url)
+                                    if extracted.error:
+                                        logger.warning(f"Error extracting {url}: {extracted.error}")
+                                    extracted_jobs.append(extracted)
+                                except Exception as e:
+                                    logger.error(f"Failed to extract {url}: {e}")
+                        return extracted_jobs
+
+                    # Run async extraction
+                    extracted_jobs = asyncio.run(scrape_urls())
+
+                    for extracted in extracted_jobs:
+                        job = {
+                            "job_id": extracted.job_id,
+                            "url": extracted.url,
+                            "title": extracted.title or f"Job {extracted.job_id[:10]}...",
+                            "description": extracted.description or "No description available",
+                            "source": "url_import",
+                            "status": "new",
+                        }
+                        # Add budget info if available
+                        if extracted.budget:
+                            job["budget_type"] = extracted.budget.budget_type
+                            job["budget_min"] = extracted.budget.budget_min
+                            job["budget_max"] = extracted.budget.budget_max
+                        # Add client info if available
+                        if extracted.client:
+                            job["client_country"] = extracted.client.country
+                            job["client_spent"] = extracted.client.total_spent
+                            job["payment_verified"] = extracted.client.payment_verified
+                        # Add skills
+                        if extracted.skills:
+                            job["skills"] = extracted.skills
+
+                        jobs.append(job)
+                        logger.info(f"Scraped job: {extracted.title or extracted.job_id}")
+
+                except ImportError as e:
+                    logger.error(f"Deep extractor not available: {e}")
+                    # Fallback to placeholder data
+                    for url in valid_urls:
+                        job_id = None
+                        if "/jobs/~" in url:
+                            job_id = url.split("/jobs/~")[-1].split("?")[0].split("/")[0]
+                        elif "~" in url:
+                            match = re.search(r'~(\d+)', url)
+                            if match:
+                                job_id = match.group(1)
+
+                        if job_id:
+                            jobs.append({
+                                "job_id": job_id,
+                                "url": f"https://www.upwork.com/jobs/~{job_id}",
+                                "title": f"Job {job_id[:10]}... (pending extraction)",
+                                "description": "Job imported from URL - deep extractor unavailable",
+                                "source": "url_import",
+                                "status": "new",
+                            })
+                except Exception as e:
+                    logger.error(f"Error during job extraction: {e}")
+                    PIPELINE_STATUS["last_run_status"] = "error"
+                    PIPELINE_STATUS["is_running"] = False
+                    return
+
+                if not jobs:
+                    logger.error("No valid job URLs found")
+                    PIPELINE_STATUS["last_run_status"] = "error"
+                    PIPELINE_STATUS["is_running"] = False
+                    return
+
+                # Save jobs to file
+                url_jobs_file = output_file.parent / "url_import_jobs.json"
+                with open(url_jobs_file, 'w') as f:
+                    json.dump(jobs, f, indent=2)
+                logger.info(f"Created {len(jobs)} job records from URLs")
+
+                if request.run_full_pipeline:
+                    # Run orchestrator with manual source
+                    logger.info("Running FULL pipeline with URL-imported jobs...")
+                    cmd = [
+                        sys.executable, "executions/upwork_pipeline_orchestrator.py",
+                        "--source", "manual",
+                        "--jobs", str(url_jobs_file),
+                        "--min-score", str(request.min_score),
+                        "--parallel", "2",
+                        "-o", str(output_file.with_suffix('.result.json'))
+                    ]
+                    logger.info(f"Running command: {' '.join(cmd)}")
+
+                    result = subprocess.run(
+                        cmd,
+                        cwd=str(Path(__file__).parent.parent),
+                        capture_output=True,
+                        text=True,
+                        timeout=900
+                    )
+
+                    if result.returncode != 0:
+                        logger.error(f"Pipeline orchestrator failed: {result.stderr}")
+                        PIPELINE_STATUS["last_run_status"] = "error"
+                        PIPELINE_STATUS["is_running"] = False
+                        return
+
+                    logger.info(f"Pipeline output: {result.stdout[-1000:]}")
+
+                    result_file = output_file.with_suffix('.result.json')
+                    if result_file.exists():
+                        with open(result_file) as f:
+                            pipeline_result = json.load(f)
+                        jobs_added = pipeline_result.get('jobs_processed', 0)
+                else:
+                    # Just import to sheet
+                    jobs_added = add_jobs_to_sheet(jobs)
+                    logger.info(f"Added {jobs_added} jobs to sheet")
+
+            elif request.run_full_pipeline:
                 # Run full pipeline orchestrator (scrape → score → extract → generate → approve)
                 logger.info("Running FULL pipeline with orchestrator...")
                 cmd = [
@@ -950,6 +1852,18 @@ async def api_trigger_pipeline(
                 if request.location:
                     # Location filter not supported by scraper yet, log it
                     logger.info(f"Location filter requested: {request.location} (not yet implemented in scraper)")
+                if request.from_date:
+                    cmd.extend(["--from-date", request.from_date])
+                if request.to_date:
+                    cmd.extend(["--to-date", request.to_date])
+                if request.min_hourly is not None:
+                    cmd.extend(["--min-hourly", str(request.min_hourly)])
+                if request.max_hourly is not None:
+                    cmd.extend(["--max-hourly", str(request.max_hourly)])
+                if request.min_fixed is not None:
+                    cmd.extend(["--min-fixed", str(request.min_fixed)])
+                if request.max_fixed is not None:
+                    cmd.extend(["--max-fixed", str(request.max_fixed)])
 
                 logger.info(f"Running command: {' '.join(cmd)}")
 
@@ -982,7 +1896,7 @@ async def api_trigger_pipeline(
                 else:
                     logger.warning(f"Output file not found: {output_file}")
 
-            else:
+            elif request.source == "gmail":
                 # Gmail source
                 cmd = [
                     sys.executable, "executions/gmail_unified.py",
@@ -997,6 +1911,12 @@ async def api_trigger_pipeline(
                 )
                 if result.returncode != 0:
                     logger.error(f"Gmail check failed: {result.stderr}")
+
+            else:
+                logger.error(f"Unknown source: {request.source}")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
 
             PIPELINE_STATUS["last_run_status"] = "success"
             PIPELINE_STATUS["jobs_processed_today"] += jobs_added
@@ -1835,4 +2755,4 @@ if frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

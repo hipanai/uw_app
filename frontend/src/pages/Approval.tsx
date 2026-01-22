@@ -4,6 +4,8 @@ import {
   approveJob,
   rejectJob,
   updateProposal,
+  getSubmissionMode,
+  type SubmissionModeResponse,
 } from '@/api/jobs';
 import type { Job } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
@@ -17,6 +19,7 @@ export function Approval() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [submissionMode, setSubmissionMode] = useState<SubmissionModeResponse | null>(null);
 
   const fetchPending = async () => {
     setLoading(true);
@@ -37,6 +40,7 @@ export function Approval() {
 
   useEffect(() => {
     fetchPending();
+    getSubmissionMode().then(setSubmissionMode).catch(console.error);
   }, []);
 
   const selectJob = (job: Job) => {
@@ -128,14 +132,48 @@ export function Approval() {
     );
   }
 
+  const getModeIndicator = () => {
+    if (!submissionMode) return null;
+    const modeColors: Record<string, string> = {
+      manual: 'bg-blue-100 text-blue-800 border-blue-300',
+      semi_auto: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      automatic: 'bg-green-100 text-green-800 border-green-300',
+    };
+    const modeLabels: Record<string, string> = {
+      manual: 'Manual Mode',
+      semi_auto: 'Semi-Auto Mode',
+      automatic: 'Automatic Mode',
+    };
+    return (
+      <span className={`ml-3 px-3 py-1 rounded-full border text-sm font-medium ${modeColors[submissionMode.mode]}`}>
+        {modeLabels[submissionMode.mode]}
+      </span>
+    );
+  };
+
+  const getApproveButtonText = () => {
+    if (actionLoading === 'approve') return 'Processing...';
+    switch (submissionMode?.mode) {
+      case 'automatic':
+        return 'Approve → Generate Video → Submit';
+      case 'semi_auto':
+        return 'Approve & Generate Video';
+      default:
+        return 'Approve & Generate Video';
+    }
+  };
+
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">
-        Approval Queue
-        <span className="ml-2 text-sm font-normal text-gray-500">
-          ({jobs.length} pending)
-        </span>
-      </h1>
+      <div className="flex items-center mb-6">
+        <h1 className="text-2xl font-bold dark:text-white">
+          Approval Queue
+          <span className="ml-2 text-sm font-normal text-gray-500">
+            ({jobs.length} pending)
+          </span>
+        </h1>
+        {getModeIndicator()}
+      </div>
 
       {error && (
         <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
@@ -149,27 +187,27 @@ export function Approval() {
       )}
 
       {jobs.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-8 text-center text-gray-500 dark:text-gray-400">
           No jobs pending approval. Check back later!
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Job List */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="p-3 bg-gray-50 border-b font-medium">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+              <div className="p-3 bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600 font-medium dark:text-white">
                 Pending Jobs
               </div>
-              <ul className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
+              <ul className="divide-y divide-gray-200 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
                 {jobs.map((job) => (
                   <li
                     key={job.job_id}
                     onClick={() => selectJob(job)}
-                    className={`p-3 cursor-pointer hover:bg-gray-50 ${
-                      selectedJob?.job_id === job.job_id ? 'bg-blue-50' : ''
+                    className={`p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                      selectedJob?.job_id === job.job_id ? 'bg-blue-50 dark:bg-blue-900/30' : ''
                     }`}
                   >
-                    <p className="font-medium text-sm truncate">{job.title}</p>
+                    <p className="font-medium text-sm truncate dark:text-white">{job.title}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span
                         className={`px-2 py-0.5 text-xs rounded ${getScoreColor(job.fit_score)}`}
@@ -191,10 +229,10 @@ export function Approval() {
             {selectedJob && (
               <>
                 {/* Job Details */}
-                <div className="bg-white rounded-lg shadow p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-4">
                     <div>
-                      <h2 className="text-lg font-semibold">{selectedJob.title}</h2>
+                      <h2 className="text-lg font-semibold dark:text-white">{selectedJob.title}</h2>
                       <a
                         href={selectedJob.url}
                         target="_blank"
@@ -211,38 +249,38 @@ export function Approval() {
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                     <div>
-                      <p className="text-gray-500">Fit Score</p>
+                      <p className="text-gray-500 dark:text-gray-400">Fit Score</p>
                       <p className={`font-semibold px-2 py-0.5 rounded inline-block ${getScoreColor(selectedJob.fit_score)}`}>
                         {selectedJob.fit_score ?? 'N/A'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Budget</p>
-                      <p className="font-semibold">
+                      <p className="text-gray-500 dark:text-gray-400">Budget</p>
+                      <p className="font-semibold dark:text-white">
                         {formatBudget(selectedJob.budget_type, selectedJob.budget_min, selectedJob.budget_max)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Client Spent</p>
-                      <p className="font-semibold">{formatClientSpent(selectedJob.client_spent)}</p>
+                      <p className="text-gray-500 dark:text-gray-400">Client Spent</p>
+                      <p className="font-semibold dark:text-white">{formatClientSpent(selectedJob.client_spent)}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Posted</p>
-                      <p className="font-semibold">{formatDate(selectedJob.posted_date)}</p>
+                      <p className="text-gray-500 dark:text-gray-400">Posted</p>
+                      <p className="font-semibold dark:text-white">{formatDate(selectedJob.posted_date)}</p>
                     </div>
                   </div>
 
-                  <div className="border-t pt-4">
+                  <div className="border-t dark:border-gray-700 pt-4">
                     <p className="text-gray-500 text-sm mb-2">Job Description</p>
-                    <p className="text-sm whitespace-pre-wrap max-h-40 overflow-y-auto">
+                    <p className="text-sm whitespace-pre-wrap max-h-40 overflow-y-auto dark:text-gray-300">
                       {selectedJob.description || 'No description available'}
                     </p>
                   </div>
 
                   {selectedJob.score_reasoning && (
-                    <div className="border-t pt-4 mt-4">
+                    <div className="border-t dark:border-gray-700 pt-4 mt-4">
                       <p className="text-gray-500 text-sm mb-2">Score Reasoning</p>
-                      <p className="text-sm whitespace-pre-wrap">
+                      <p className="text-sm whitespace-pre-wrap dark:text-gray-300">
                         {selectedJob.score_reasoning}
                       </p>
                     </div>
@@ -250,9 +288,9 @@ export function Approval() {
                 </div>
 
                 {/* Proposal Editor */}
-                <div className="bg-white rounded-lg shadow p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                   <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-semibold">Proposal</h3>
+                    <h3 className="font-semibold dark:text-white">Proposal</h3>
                     <button
                       onClick={handleSaveProposal}
                       disabled={actionLoading === 'save' || editedProposal === selectedJob.proposal_text}
@@ -264,7 +302,7 @@ export function Approval() {
                   <textarea
                     value={editedProposal}
                     onChange={(e) => setEditedProposal(e.target.value)}
-                    className="w-full h-64 p-3 border border-gray-300 rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="No proposal generated yet"
                   />
                 </div>
@@ -274,9 +312,13 @@ export function Approval() {
                   <button
                     onClick={handleApprove}
                     disabled={actionLoading !== null}
-                    className="flex-1 bg-green-600 text-white py-3 px-4 rounded-md hover:bg-green-700 disabled:opacity-50 font-medium"
+                    className={`flex-1 text-white py-3 px-4 rounded-md disabled:opacity-50 font-medium ${
+                      submissionMode?.mode === 'automatic'
+                        ? 'bg-green-600 hover:bg-green-700'
+                        : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
                   >
-                    {actionLoading === 'approve' ? 'Approving...' : 'Approve & Submit'}
+                    {getApproveButtonText()}
                   </button>
                   <button
                     onClick={handleReject}
@@ -286,6 +328,18 @@ export function Approval() {
                     {actionLoading === 'reject' ? 'Rejecting...' : 'Reject'}
                   </button>
                 </div>
+
+                {/* Mode-specific info */}
+                {submissionMode?.mode !== 'automatic' && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    After approval, video will be generated. You can then submit from the Dashboard.
+                  </p>
+                )}
+                {submissionMode?.mode === 'automatic' && (
+                  <p className="text-sm text-green-600 mt-2">
+                    Full automatic mode: Job will be approved, video generated, and submitted to Upwork automatically.
+                  </p>
+                )}
               </>
             )}
           </div>

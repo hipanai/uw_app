@@ -2,6 +2,9 @@
 
 @source "../src/**/*.{js,ts,jsx,tsx}";
 
+/* Enable class-based dark mode for Tailwind v4 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --radius: 0.5rem;
 }
@@ -14,4 +17,16 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+/* Light mode default */
+html {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+/* Dark mode */
+html.dark {
+  background-color: #111827;
+  color: #f9fafb;
 }

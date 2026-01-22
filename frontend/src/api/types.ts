@@ -7,7 +7,9 @@ export type JobStatus =
   | 'pending_approval'
   | 'approved'
   | 'rejected'
+  | 'submitting'
   | 'submitted'
+  | 'submission_failed'
   | 'filtered_out'
   | 'error';
 
@@ -129,4 +131,21 @@ export interface LogEntry {
 export interface LogsResponse {
   logs: LogEntry[];
   total: number;
+}
+
+// Video Generation Status
+export interface VideoGenerationStatus {
+  job_id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  stage: string;
+  started_at: string;
+  updated_at?: string;
+  logs: string[];
+  error: string | null;
+  video_url: string | null;
+}
+
+export interface ActiveVideoGenerationsResponse {
+  video_generations: VideoGenerationStatus[];
+  count: number;
 }

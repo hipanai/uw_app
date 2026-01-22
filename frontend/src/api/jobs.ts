@@ -12,6 +12,8 @@ import type {
   ConfigUpdateResponse,
   LogsResponse,
   JobStatus,
+  VideoGenerationStatus,
+  ActiveVideoGenerationsResponse,
 } from './types';
 
 // Auth API
@@ -102,12 +104,19 @@ export const updateConfig = async (
 };
 
 export const triggerPipeline = async (
-  source: 'apify' | 'gmail',
+  source: 'apify' | 'gmail' | 'urls',
   limit?: number,
   keywords?: string,
   location?: string,
   runFullPipeline?: boolean,
-  minScore?: number
+  minScore?: number,
+  fromDate?: string,
+  toDate?: string,
+  minHourly?: number,
+  maxHourly?: number,
+  minFixed?: number,
+  maxFixed?: number,
+  jobUrls?: string[]
 ): Promise<PipelineTriggerResponse> => {
   const response = await apiClient.post<PipelineTriggerResponse>('/admin/pipeline/trigger', {
     source,
@@ -116,6 +125,13 @@ export const triggerPipeline = async (
     location: location || undefined,
     run_full_pipeline: runFullPipeline ?? false,
     min_score: minScore ?? 70,
+    from_date: fromDate || undefined,
+    to_date: toDate || undefined,
+    min_hourly: minHourly || undefined,
+    max_hourly: maxHourly || undefined,
+    min_fixed: minFixed || undefined,
+    max_fixed: maxFixed || undefined,
+    job_urls: jobUrls || undefined,
   });
   return response.data;
 };
@@ -127,6 +143,16 @@ export const processJobs = async (
   const response = await apiClient.post('/admin/pipeline/process', {
     job_ids: jobIds,
     min_score: minScore ?? 70,
+  });
+  return response.data;
+};
+
+export const updateJobStatus = async (
+  jobId: string,
+  status: string
+): Promise<{ success: boolean; job_id: string; status: string }> => {
+  const response = await apiClient.patch(`/jobs/${encodeURIComponent(jobId)}/status`, {
+    status,
   });
   return response.data;
 };
@@ -148,5 +174,91 @@ export const getLogs = async (
 
 export const getHealth = async (): Promise<HealthResponse> => {
   const response = await apiClient.get<HealthResponse>('/admin/health');
+  return response.data;
+};
+
+// Delete API
+export interface DeleteJobResponse {
+  success: boolean;
+  message: string;
+  job_id: string;
+}
+
+export interface BulkDeleteResponse {
+  success: boolean;
+  message: string;
+  deleted_count: number;
+  requested_count: number;
+}
+
+export const deleteJob = async (jobId: string): Promise<DeleteJobResponse> => {
+  const response = await apiClient.delete<DeleteJobResponse>(`/jobs/${encodeURIComponent(jobId)}`);
+  return response.data;
+};
+
+export const deleteJobsBulk = async (jobIds: string[]): Promise<BulkDeleteResponse> => {
+  const response = await apiClient.delete<BulkDeleteResponse>('/jobs/bulk', {
+    data: { job_ids: jobIds }
+  });
+  return response.data;
+};
+
+// Submission Status API
+export interface SubmissionStatus {
+  job_id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  stage: string;
+  started_at: string;
+  updated_at?: string;
+  logs: string[];
+  error: string | null;
+  result: Record<string, unknown> | null;
+}
+
+export interface ActiveSubmissionsResponse {
+  submissions: Record<string, SubmissionStatus>;
+  count: number;
+}
+
+export const getSubmissionStatus = async (jobId: string): Promise<SubmissionStatus> => {
+  const response = await apiClient.get<SubmissionStatus>(`/submissions/status/${encodeURIComponent(jobId)}`);
+  return response.data;
+};
+
+export const getActiveSubmissions = async (): Promise<ActiveSubmissionsResponse> => {
+  const response = await apiClient.get<ActiveSubmissionsResponse>('/submissions/active');
+  return response.data;
+};
+
+// Submission Mode API
+export interface SubmissionModeResponse {
+  mode: 'manual' | 'semi_auto' | 'automatic';
+  description: string;
+  available_modes: { value: string; label: string }[];
+}
+
+export const getSubmissionMode = async (): Promise<SubmissionModeResponse> => {
+  const response = await apiClient.get<SubmissionModeResponse>('/submission-mode');
+  return response.data;
+};
+
+export const setSubmissionMode = async (mode: string): Promise<{ success: boolean; mode: string }> => {
+  const response = await apiClient.put('/submission-mode', { mode });
+  return response.data;
+};
+
+export const autoProcessPendingJobs = async (): Promise<{ success: boolean; processed: number; message: string }> => {
+  const response = await apiClient.post('/auto-process');
+  return response.data;
+};
+
+// Video Generation Status API
+export const getVideoGenerationStatus = async (jobId: string): Promise<VideoGenerationStatus> => {
+  const response = await apiClient.get<VideoGenerationStatus>(`/video-generation/status/${encodeURIComponent(jobId)}`);
+  return response.data;
+};
+
+export const getActiveVideoGenerations = async (): Promise<ActiveVideoGenerationsResponse> => {
+  const response = await apiClient.get<ActiveVideoGenerationsResponse>('/video-generation/active');
   return response.data;
 };

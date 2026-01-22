@@ -6,6 +6,10 @@ import {
   getPipelineStatus,
   triggerPipeline,
   getLogs,
+  getSubmissionMode,
+  setSubmissionMode,
+  autoProcessPendingJobs,
+  type SubmissionModeResponse,
 } from '@/api/jobs';
 import type { HealthResponse, PipelineStatusResponse, LogEntry, ConfigItem } from '@/api/types';
 import { LOG_LEVEL_COLORS } from '@/lib/constants';
@@ -20,29 +24,41 @@ export function Admin() {
   const [loading, setLoading] = useState(true);
   const [triggerLoading, setTriggerLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
-  const [triggerSource, setTriggerSource] = useState<'apify' | 'gmail'>('apify');
+  const [triggerSource, setTriggerSource] = useState<'apify' | 'gmail' | 'urls'>('apify');
+  const [jobUrls, setJobUrls] = useState<string>('');
   const [triggerLimit, setTriggerLimit] = useState<number>(10);
   const [triggerKeywords, setTriggerKeywords] = useState<string>('');
   const [triggerLocation, setTriggerLocation] = useState<string>('');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [minHourly, setMinHourly] = useState<string>('');
+  const [maxHourly, setMaxHourly] = useState<string>('');
+  const [minFixed, setMinFixed] = useState<string>('');
+  const [maxFixed, setMaxFixed] = useState<string>('');
   const [runFullPipeline, setRunFullPipeline] = useState<boolean>(false);
   const [minScore, setMinScore] = useState<number>(70);
   const [logLevel, setLogLevel] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'config' | 'logs'>('status');
+  const [submissionMode, setSubmissionModeState] = useState<SubmissionModeResponse | null>(null);
+  const [modeChanging, setModeChanging] = useState(false);
+  const [autoProcessing, setAutoProcessing] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [healthRes, statusRes, configRes, logsRes] = await Promise.all([
+      const [healthRes, statusRes, configRes, logsRes, modeRes] = await Promise.all([
         getHealth(),
         getPipelineStatus(),
         getConfig(),
         getLogs(logLevel || undefined, 100),
+        getSubmissionMode(),
       ]);
       setHealth(healthRes);
       setPipelineStatus(statusRes);
       setConfigItems(configRes.config);
+      setSubmissionModeState(modeRes);
       // Initialize edited config with current values
       const initialEdited: Record<string, string> = {};
       configRes.config.forEach((item: ConfigItem) => {
@@ -107,19 +123,43 @@ export function Admin() {
     setError(null);
     setSuccess(null);
     try {
+      // Parse URLs if source is 'urls'
+      const urlList = triggerSource === 'urls'
+        ? jobUrls.split('\n').map(u => u.trim()).filter(u => u.length > 0)
+        : undefined;
+
+      if (triggerSource === 'urls' && (!urlList || urlList.length === 0)) {
+        setError('Please enter at least one Upwork job URL');
+        setTriggerLoading(false);
+        return;
+      }
+
       const result = await triggerPipeline(
         triggerSource,
         triggerLimit,
         triggerKeywords || undefined,
         triggerLocation || undefined,
         runFullPipeline,
-        minScore
+        minScore,
+        fromDate || undefined,
+        toDate || undefined,
+        minHourly ? parseInt(minHourly) : undefined,
+        maxHourly ? parseInt(maxHourly) : undefined,
+        minFixed ? parseInt(minFixed) : undefined,
+        maxFixed ? parseInt(maxFixed) : undefined,
+        urlList
       );
       let msg = runFullPipeline
         ? `Full Pipeline triggered! Run ID: ${result.run_id} (score >= ${minScore})`
+        : triggerSource === 'urls'
+        ? `URL import triggered! Run ID: ${result.run_id} (${urlList?.length} URLs)`
         : `Scrape triggered! Run ID: ${result.run_id}`;
       if (triggerKeywords) msg += ` | Keywords: ${triggerKeywords}`;
       if (triggerLocation) msg += ` | Location: ${triggerLocation}`;
+      if (fromDate) msg += ` | From: ${fromDate}`;
+      if (toDate) msg += ` | To: ${toDate}`;
+      if (minHourly || maxHourly) msg += ` | Hourly: $${minHourly || '0'}-$${maxHourly || '∞'}`;
+      if (minFixed || maxFixed) msg += ` | Fixed: $${minFixed || '0'}-$${maxFixed || '∞'}`;
       setSuccess(msg);
       // Refresh status
       const status = await getPipelineStatus();
@@ -128,6 +168,36 @@ export function Admin() {
       setError(err instanceof Error ? err.message : 'Failed to trigger pipeline');
     } finally {
       setTriggerLoading(false);
+    }
+  };
+
+  const handleModeChange = async (newMode: string) => {
+    setModeChanging(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await setSubmissionMode(newMode);
+      const modeRes = await getSubmissionMode();
+      setSubmissionModeState(modeRes);
+      setSuccess(`Submission mode changed to: ${newMode}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to change mode');
+    } finally {
+      setModeChanging(false);
+    }
+  };
+
+  const handleAutoProcess = async () => {
+    setAutoProcessing(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await autoProcessPendingJobs();
+      setSuccess(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to auto-process jobs');
+    } finally {
+      setAutoProcessing(false);
     }
   };
 
@@ -144,10 +214,23 @@ export function Admin() {
     }
   };
 
+  const getModeColor = (mode: string) => {
+    switch (mode) {
+      case 'manual':
+        return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'semi_auto':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'automatic':
+        return 'bg-green-100 text-green-800 border-green-300';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-300';
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-bold mb-6">Admin Panel</h1>
+        <h1 className="text-2xl font-bold mb-6 dark:text-white">Admin Panel</h1>
         <div className="text-center py-8">Loading...</div>
       </div>
     );
@@ -155,7 +238,7 @@ export function Admin() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Admin Panel</h1>
+      <h1 className="text-2xl font-bold mb-6 dark:text-white">Admin Panel</h1>
 
       {error && (
         <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">{error}</div>
@@ -165,7 +248,7 @@ export function Admin() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b mb-6">
+      <div className="flex border-b dark:border-gray-700 mb-6">
         {(['status', 'config', 'logs'] as const).map((tab) => (
           <button
             key={tab}
@@ -173,7 +256,7 @@ export function Admin() {
             className={`px-4 py-2 font-medium capitalize ${
               activeTab === tab
                 ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
             {tab}
@@ -184,31 +267,100 @@ export function Admin() {
       {/* Status Tab */}
       {activeTab === 'status' && (
         <div className="space-y-6">
+          {/* Submission Mode Selector */}
+          <div className={`rounded-lg shadow p-4 border-2 ${getModeColor(submissionMode?.mode || 'manual')}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold dark:text-white">Submission Mode</h2>
+                <p className="text-sm text-gray-600">{submissionMode?.description}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={submissionMode?.mode || 'manual'}
+                  onChange={(e) => handleModeChange(e.target.value)}
+                  disabled={modeChanging}
+                  className={`px-4 py-2 border-2 rounded-lg font-medium ${getModeColor(submissionMode?.mode || 'manual')}`}
+                >
+                  {submissionMode?.available_modes.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.value === 'manual' ? 'Manual' : m.value === 'semi_auto' ? 'Semi-Auto' : 'Automatic'}
+                    </option>
+                  ))}
+                </select>
+                {modeChanging && <span className="text-sm text-gray-500 dark:text-gray-400">Saving...</span>}
+              </div>
+            </div>
+
+            {/* Mode descriptions */}
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className={`p-3 rounded-lg ${submissionMode?.mode === 'manual' ? 'bg-white ring-2 ring-blue-400' : 'bg-gray-50'}`}>
+                <div className="font-medium text-blue-700">Manual</div>
+                <p className="text-gray-600 text-xs mt-1">
+                  Approve each job manually, then click Submit after video generation
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg ${submissionMode?.mode === 'semi_auto' ? 'bg-white ring-2 ring-yellow-400' : 'bg-gray-50'}`}>
+                <div className="font-medium text-yellow-700">Semi-Auto</div>
+                <p className="text-gray-600 text-xs mt-1">
+                  Auto-approve and generate videos, but require manual Submit to Upwork
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg ${submissionMode?.mode === 'automatic' ? 'bg-white ring-2 ring-green-400' : 'bg-gray-50'}`}>
+                <div className="font-medium text-green-700">Automatic</div>
+                <p className="text-gray-600 text-xs mt-1">
+                  Full automation: approve, generate videos, and submit to Upwork
+                </p>
+              </div>
+            </div>
+
+            {/* Auto-process button for semi_auto and automatic modes */}
+            {(submissionMode?.mode === 'semi_auto' || submissionMode?.mode === 'automatic') && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <button
+                  onClick={handleAutoProcess}
+                  disabled={autoProcessing}
+                  className={`px-4 py-2 rounded-lg text-white font-medium ${
+                    submissionMode?.mode === 'automatic'
+                      ? 'bg-green-600 hover:bg-green-700'
+                      : 'bg-yellow-600 hover:bg-yellow-700'
+                  } disabled:opacity-50`}
+                >
+                  {autoProcessing ? 'Processing...' : 'Process All Pending Jobs Now'}
+                </button>
+                <p className="text-xs text-gray-500 mt-2">
+                  {submissionMode?.mode === 'automatic'
+                    ? 'This will auto-approve, generate videos, and submit all pending jobs to Upwork.'
+                    : 'This will auto-approve and generate videos for all pending jobs. You\'ll still need to manually submit.'}
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Health Status */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h2 className="text-lg font-semibold mb-4">System Health</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <h2 className="text-lg font-semibold mb-4 dark:text-white">System Health</h2>
             {health && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Overall Status</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Overall Status</p>
                   <span className={`inline-block px-2 py-1 rounded text-sm font-medium ${getHealthColor(health.status)}`}>
                     {health.status}
                   </span>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Google Sheets</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Google Sheets</p>
                   <span className={`inline-block px-2 py-1 rounded text-sm ${health.services.sheets ? 'text-green-600' : 'text-red-600'}`}>
                     {health.services.sheets ? 'Connected' : 'Disconnected'}
                   </span>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Slack</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Slack</p>
                   <span className={`inline-block px-2 py-1 rounded text-sm ${health.services.slack ? 'text-green-600' : 'text-red-600'}`}>
                     {health.services.slack ? 'Connected' : 'Disconnected'}
                   </span>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">OpenAI</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">OpenAI</p>
                   <span className={`inline-block px-2 py-1 rounded text-sm ${health.services.openai ? 'text-green-600' : 'text-red-600'}`}>
                     {health.services.openai ? 'Connected' : 'Disconnected'}
                   </span>
@@ -218,24 +370,24 @@ export function Admin() {
           </div>
 
           {/* Pipeline Status */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h2 className="text-lg font-semibold mb-4">Pipeline Status</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <h2 className="text-lg font-semibold mb-4 dark:text-white">Pipeline Status</h2>
             {pipelineStatus && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                 <div>
-                  <p className="text-sm text-gray-500">Running</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Running</p>
                   <p className={`font-semibold ${pipelineStatus.is_running ? 'text-blue-600' : 'text-gray-600'}`}>
                     {pipelineStatus.is_running ? 'Yes' : 'No'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Last Run</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Last Run</p>
                   <p className="font-semibold text-sm">
                     {formatDate(pipelineStatus.last_run_time)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Last Status</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Last Status</p>
                   <p className={`font-semibold ${
                     pipelineStatus.last_run_status === 'success'
                       ? 'text-green-600'
@@ -247,7 +399,7 @@ export function Admin() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Jobs Processed</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Jobs Processed</p>
                   <p className="font-semibold">{pipelineStatus.jobs_processed_today}</p>
                 </div>
               </div>
@@ -255,33 +407,34 @@ export function Admin() {
           </div>
 
           {/* Trigger Pipeline */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h2 className="text-lg font-semibold mb-4">Trigger Pipeline</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <h2 className="text-lg font-semibold mb-4 dark:text-white">Trigger Pipeline</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-sm text-gray-500 mb-1">Source</label>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">Source</label>
                 <select
                   value={triggerSource}
-                  onChange={(e) => setTriggerSource(e.target.value as 'apify' | 'gmail')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  onChange={(e) => setTriggerSource(e.target.value as 'apify' | 'gmail' | 'urls')}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
                 >
                   <option value="apify">Apify (Scrape New Jobs)</option>
                   <option value="gmail">Gmail (Process Alerts)</option>
+                  <option value="urls">URLs (Direct Job Links)</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-gray-500 mb-1">Limit</label>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">Limit</label>
                 <input
                   type="number"
                   value={triggerLimit}
                   onChange={(e) => setTriggerLimit(parseInt(e.target.value) || 10)}
                   min={1}
                   max={100}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-500 mb-1">
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
                   Keywords <span className="text-gray-400">(optional)</span>
                 </label>
                 <input
@@ -289,12 +442,12 @@ export function Admin() {
                   value={triggerKeywords}
                   onChange={(e) => setTriggerKeywords(e.target.value)}
                   placeholder="e.g., python, react, automation"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
                   disabled={triggerSource === 'gmail'}
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-500 mb-1">
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
                   Location <span className="text-gray-400">(optional)</span>
                 </label>
                 <input
@@ -302,14 +455,117 @@ export function Admin() {
                   value={triggerLocation}
                   onChange={(e) => setTriggerLocation(e.target.value)}
                   placeholder="e.g., United States, Remote"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  From Date <span className="text-gray-400">(optional)</span>
+                </label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  To Date <span className="text-gray-400">(optional)</span>
+                </label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
                   disabled={triggerSource === 'gmail'}
                 />
               </div>
             </div>
 
+            {/* Budget Filters */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              <div>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Min Hourly ($)
+                </label>
+                <input
+                  type="number"
+                  value={minHourly}
+                  onChange={(e) => setMinHourly(e.target.value)}
+                  placeholder="5"
+                  min={0}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Max Hourly ($)
+                </label>
+                <input
+                  type="number"
+                  value={maxHourly}
+                  onChange={(e) => setMaxHourly(e.target.value)}
+                  placeholder="1500"
+                  min={0}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Min Fixed ($)
+                </label>
+                <input
+                  type="number"
+                  value={minFixed}
+                  onChange={(e) => setMinFixed(e.target.value)}
+                  placeholder="50"
+                  min={0}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Max Fixed ($)
+                </label>
+                <input
+                  type="number"
+                  value={maxFixed}
+                  onChange={(e) => setMaxFixed(e.target.value)}
+                  placeholder="100000"
+                  min={0}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                  disabled={triggerSource === 'gmail'}
+                />
+              </div>
+            </div>
+
+            {/* URL Input - only show when source is 'urls' */}
+            {triggerSource === 'urls' && (
+              <div className="mt-4">
+                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Job URLs <span className="text-gray-400">(one per line)</span>
+                </label>
+                <textarea
+                  value={jobUrls}
+                  onChange={(e) => setJobUrls(e.target.value)}
+                  placeholder="https://www.upwork.com/jobs/~01234567890123456789&#10;https://www.upwork.com/jobs/~09876543210987654321"
+                  rows={5}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Paste Upwork job URLs, one per line. They will be fetched and added to the pipeline.
+                </p>
+              </div>
+            )}
+
             {/* Full Pipeline Options */}
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
               <div className="flex items-center gap-3 mb-3">
                 <input
                   type="checkbox"
@@ -318,7 +574,7 @@ export function Admin() {
                   onChange={(e) => setRunFullPipeline(e.target.checked)}
                   className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                 />
-                <label htmlFor="runFullPipeline" className="font-medium text-gray-700">
+                <label htmlFor="runFullPipeline" className="font-medium text-gray-700 dark:text-gray-200">
                   Run Full Pipeline
                 </label>
               </div>
@@ -328,7 +584,7 @@ export function Admin() {
               </p>
               {runFullPipeline && (
                 <div className="flex items-center gap-4">
-                  <label className="text-sm text-gray-600">Min Fit Score:</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-300">Min Fit Score:</label>
                   <input
                     type="number"
                     value={minScore}
@@ -337,7 +593,7 @@ export function Admin() {
                     max={100}
                     className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     Jobs below this score will be filtered out
                   </span>
                 </div>
@@ -361,7 +617,7 @@ export function Admin() {
                   : 'Scrape Only'}
               </button>
               {triggerSource === 'gmail' && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Keywords and location filters only apply to Apify source
                 </p>
               )}
@@ -377,11 +633,11 @@ export function Admin() {
 
       {/* Config Tab */}
       {activeTab === 'config' && (
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <div className="flex justify-between items-center mb-4">
             <div>
-              <h2 className="text-lg font-semibold">Configuration</h2>
-              <p className="text-sm text-gray-500">
+              <h2 className="text-lg font-semibold dark:text-white">Configuration</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Edit environment variables. Sensitive values are masked.
               </p>
             </div>
@@ -434,9 +690,9 @@ export function Admin() {
 
       {/* Logs Tab */}
       {activeTab === 'logs' && (
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">Execution Logs</h2>
+            <h2 className="text-lg font-semibold dark:text-white">Execution Logs</h2>
             <div className="flex gap-2">
               <select
                 value={logLevel}

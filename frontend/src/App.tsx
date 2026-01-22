@@ -5,12 +5,11 @@ import { Approval } from '@/pages/Approval';
 import { Admin } from '@/pages/Admin';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 function App() {
-  // Debug: Log that App is rendering
-  console.log('App rendering');
-
   return (
+    <ThemeProvider>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -48,6 +47,7 @@ function App() {
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

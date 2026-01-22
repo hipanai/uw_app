@@ -188,6 +188,7 @@ class PipelineJob:
     payment_verified: bool = False
     attachments: List[Dict] = field(default_factory=list)
     attachment_content: Optional[str] = None
+    screenshot_path: Optional[str] = None  # Full-page screenshot of job listing
 
     # Deliverable results
     proposal_doc_url: Optional[str] = None
@@ -235,7 +236,7 @@ class PipelineJob:
             'fit_score': self.fit_score,
             'fit_reasoning': self.fit_reasoning,
             'proposal_doc_url': self.proposal_doc_url,
-            'proposal_text': self.proposal_text[:2000] if self.proposal_text else None,
+            'proposal_text': self.proposal_text[:45000] if self.proposal_text else None,
             'video_url': self.video_url,
             'pdf_url': self.pdf_url,
             'boost_decision': self.boost_decision,
@@ -708,8 +709,10 @@ async def run_pipeline_async(
 
         if DEEP_EXTRACTOR_AVAILABLE and not mock:
             try:
+                # Extract job details AND capture full-page screenshots
                 extracted_jobs = await extract_jobs_batch_async(
                     [j.url for j in pipeline_jobs],
+                    capture_screenshots=True,  # Capture screenshots for video composition
                     max_concurrent=parallel
                 )
 
@@ -720,6 +723,7 @@ async def run_pipeline_async(
 
                     job.title = extracted.title or job.title
                     job.description = extracted.description or job.description
+                    job.screenshot_path = extracted.screenshot_path  # Store screenshot path
 
                     if extracted.budget:
                         job.budget_type = extracted.budget.budget_type
@@ -776,10 +780,13 @@ async def run_pipeline_async(
                         job.pdf_url = f"https://drive.google.com/file/d/mock_pdf_{job.job_id}/view"
                         job.cover_letter = f"Mock cover letter for {job.title}"
                 else:
+                    # Note: Video generation is deferred to approval stage to save HeyGen credits
+                    # Only generate doc and PDF here; video is created when user clicks Approve
                     deliverables = await generate_deliverables_batch_async(
                         job_datas,
                         max_concurrent=parallel,
-                        mock=False
+                        mock=False,
+                        generate_video=False  # Video generated on approval, not here
                     )
 
                     for job, deliv in zip(pipeline_jobs, deliverables):
@@ -789,7 +796,7 @@ async def run_pipeline_async(
 
                         job.proposal_doc_url = deliv.proposal_doc_url
                         job.proposal_text = deliv.proposal_text
-                        job.video_url = deliv.video_url
+                        # video_url will be set when job is approved
                         job.pdf_url = deliv.pdf_url
                         job.cover_letter = deliv.cover_letter
 
