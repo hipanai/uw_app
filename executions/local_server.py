@@ -217,7 +217,7 @@ def get_sheets_client():
     if not GSPREAD_AVAILABLE:
         return None
 
-    token_paths = ['config/token.json', 'configuration/token.json']
+    token_paths = ['config/token.json', 'configuration/token.json', '../config/token.json']
     creds = None
 
     for token_path in token_paths:
