@@ -669,20 +669,31 @@ class UpworkDeepExtractor:
         except Exception as e:
             attachment.extracted_text = f"[Error downloading: {e}]"
 
-    async def _capture_screenshot(self, page, job_id: str) -> str:
-        """Capture a screenshot of the job page."""
+    async def _capture_screenshot(self, page, job_id: str, full_page: bool = True) -> str:
+        """Capture a screenshot of the job page.
+
+        Args:
+            page: Playwright page object
+            job_id: Job ID for filename
+            full_page: If True, captures entire scrollable page. If False, captures viewport only.
+
+        Returns:
+            Path to saved screenshot
+        """
         screenshots_dir = self.tmp_dir / "screenshots"
         screenshots_dir.mkdir(exist_ok=True)
 
         screenshot_path = screenshots_dir / f"job_snapshot_{job_id}.png"
 
-        # Scroll to ensure content is visible
+        # Scroll to top first
         await page.evaluate("window.scrollTo(0, 0)")
         await asyncio.sleep(0.5)
 
-        # Take full-page screenshot at 1920x1080
+        # Set viewport width (height doesn't matter for full-page)
         await page.set_viewport_size({"width": 1920, "height": 1080})
-        await page.screenshot(path=str(screenshot_path), full_page=False)
+
+        # Take screenshot - full_page=True captures entire scrollable content
+        await page.screenshot(path=str(screenshot_path), full_page=full_page)
 
         return str(screenshot_path)
 

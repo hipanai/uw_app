@@ -71,6 +71,7 @@ class JobData:
     fit_reasoning: Optional[str] = None
     contact_name: Optional[str] = None
     contact_confidence: Optional[str] = None
+    screenshot_path: Optional[str] = None  # Full-page screenshot of job listing
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'JobData':
@@ -119,6 +120,7 @@ class JobData:
             fit_reasoning=data.get('fit_reasoning'),
             contact_name=data.get('contact_name'),
             contact_confidence=data.get('contact_confidence'),
+            screenshot_path=data.get('screenshot_path'),
         )
 
 
@@ -703,10 +705,24 @@ Return ONLY the cover letter text."""
 
 async def generate_heygen_video_async(
     job: JobData,
-    screenshot_url: Optional[str] = None,
-    mock: bool = False
+    screenshot_path: Optional[str] = None,
+    mock: bool = False,
+    compose_with_screenshot: bool = True,
+    proposal_text: Optional[str] = None
 ) -> Optional[str]:
-    """Generate HeyGen video cover letter."""
+    """Generate HeyGen video cover letter with optional screenshot composition.
+
+    Args:
+        job: Job data
+        screenshot_path: Local path to full-page job screenshot (for composition)
+        mock: Use mock mode
+        compose_with_screenshot: If True, creates composite video with background
+            and circular avatar overlay. Will auto-generate background if not provided.
+        proposal_text: The written proposal to convert into spoken script
+
+    Returns:
+        URL to final video (or local path if composed)
+    """
 
     if mock:
         return f"https://heygen.com/videos/mock_{job.job_id}"
@@ -716,7 +732,7 @@ async def generate_heygen_video_async(
         from upwork_heygen_video import create_heygen_video_async
         from upwork_video_script_generator import generate_video_script_async, analyze_job
 
-        # First generate the video script
+        # Build job dict for script generation
         job_dict = {
             'title': job.title,
             'description': job.description,
@@ -724,22 +740,140 @@ async def generate_heygen_video_async(
             'budget_type': job.budget_type,
             'budget_min': job.budget_min,
             'budget_max': job.budget_max,
+            'client_country': job.client_country,
+            'client_spent': job.client_spent,
+            'client_hires': job.client_hires,
+            'payment_verified': job.payment_verified,
         }
 
+        # Generate video script from proposal (or job analysis as fallback)
         job_analysis = analyze_job(job_dict)
-        script_result = await generate_video_script_async(job_dict, job_analysis)
+        script_result = await generate_video_script_async(
+            job=job_dict,
+            job_analysis=job_analysis,
+            proposal_text=proposal_text  # Pass proposal to create matching script
+        )
 
         if not script_result or not script_result.script_text:
             logger.error("Failed to generate video script")
             return None
 
-        # Generate the video
+        # Generate the avatar video (no background - we'll composite later)
         result = await create_heygen_video_async(
             script=script_result.script_text,
-            job_snapshot_url=screenshot_url
+            job_snapshot_url=None  # Don't use HeyGen's background feature
         )
 
-        return result.video_url if result and result.video_url else None
+        if not result or not result.video_url:
+            logger.error("Failed to generate HeyGen video")
+            return None
+
+        avatar_video_url = result.video_url
+
+        # Prepare backgrounds for composition
+        job_screenshot = screenshot_path
+        proposal_screenshot = None
+
+        # Generate HTML templates for both views
+        if compose_with_screenshot:
+            try:
+                from upwork_html_renderer import render_job_and_proposal
+
+                logger.info("Generating job listing and proposal backgrounds...")
+
+                # Prepare output path for rendered screenshots
+                render_output_dir = Path(".tmp/rendered_jobs")
+                render_output_dir.mkdir(parents=True, exist_ok=True)
+                render_output_path = str(render_output_dir / f"job_{job.job_id}")
+
+                # Render both views
+                render_result = await render_job_and_proposal(
+                    job_dict,
+                    proposal_text,
+                    render_output_path
+                )
+
+                if render_result.success:
+                    job_screenshot = render_result.job_screenshot_path
+                    proposal_screenshot = render_result.proposal_screenshot_path
+                    logger.info(f"Generated job background: {job_screenshot}")
+                    if proposal_screenshot:
+                        logger.info(f"Generated proposal background: {proposal_screenshot}")
+                else:
+                    logger.warning(f"HTML rendering failed: {render_result.error}")
+
+            except ImportError as e:
+                logger.warning(f"HTML renderer not available: {e}")
+            except Exception as e:
+                logger.warning(f"HTML rendering failed: {e}")
+
+        # Compose video with transition if we have both views
+        if job_screenshot and proposal_screenshot and os.path.exists(job_screenshot) and os.path.exists(proposal_screenshot):
+            try:
+                from upwork_video_composer import compose_video_with_transition_async
+
+                # Output path for composed video
+                output_dir = Path(".tmp/composed_videos")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = str(output_dir / f"composed_{job.job_id}.mp4")
+
+                # Calculate transition time based on intro length
+                # Typically intro is ~15-20 seconds, transition when approach starts
+                transition_time = 18.0  # Transition after intro
+
+                logger.info("Composing video with job-to-proposal transition...")
+                compose_result = await compose_video_with_transition_async(
+                    job_screenshot_path=job_screenshot,
+                    proposal_screenshot_path=proposal_screenshot,
+                    avatar_video_url=avatar_video_url,
+                    output_path=output_path,
+                    transition_time=transition_time,
+                    avatar_size=280,
+                    avatar_margin=40
+                )
+
+                if compose_result.success:
+                    logger.info(f"Composed video created: {compose_result.output_path}")
+                    return compose_result.output_path
+                else:
+                    logger.warning(f"Video composition failed: {compose_result.error}")
+                    # Fall back to single-view composition
+
+            except ImportError as e:
+                logger.warning(f"Video composer transition not available: {e}")
+            except Exception as e:
+                logger.warning(f"Video composition with transition failed: {e}")
+
+        # Fall back to single-view composition if transition failed
+        if job_screenshot and compose_with_screenshot and os.path.exists(job_screenshot):
+            try:
+                from upwork_video_composer import compose_video_from_urls_async
+
+                output_dir = Path(".tmp/composed_videos")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = str(output_dir / f"composed_{job.job_id}.mp4")
+
+                logger.info("Composing video with job listing background (fallback)...")
+                compose_result = await compose_video_from_urls_async(
+                    screenshot_path=job_screenshot,
+                    avatar_video_url=avatar_video_url,
+                    output_path=output_path,
+                    avatar_size=280,
+                    avatar_margin=40
+                )
+
+                if compose_result.success:
+                    logger.info(f"Composed video created: {compose_result.output_path}")
+                    return compose_result.output_path
+                else:
+                    logger.warning(f"Video composition failed: {compose_result.error}")
+                    return avatar_video_url
+
+            except Exception as e:
+                logger.warning(f"Fallback composition failed: {e}")
+                return avatar_video_url
+
+        return avatar_video_url
 
     except ImportError as e:
         logger.warning(f"HeyGen module not available: {e}")
@@ -754,7 +888,7 @@ def generate_deliverables(
     generate_doc: bool = True,
     generate_pdf: bool = True,
     generate_video: bool = True,
-    screenshot_url: Optional[str] = None,
+    screenshot_path: Optional[str] = None,
     mock: bool = False
 ) -> DeliverableResult:
     """
@@ -765,7 +899,7 @@ def generate_deliverables(
         generate_doc: Whether to create Google Doc
         generate_pdf: Whether to export PDF
         generate_video: Whether to create HeyGen video
-        screenshot_url: URL of job screenshot for video background
+        screenshot_path: Local path to job screenshot for video composition
         mock: Use mock mode for testing
 
     Returns:
@@ -821,13 +955,16 @@ def generate_deliverables(
                         pdf_path.unlink(missing_ok=True)
             logger.info(f"PDF created: {result.pdf_url}")
 
-        # Step 4: Generate HeyGen video
+        # Step 4: Generate HeyGen video (using proposal text for script)
         if generate_video:
             logger.info("Generating HeyGen video...")
+            # Use provided screenshot_path or fall back to job's screenshot
+            effective_screenshot = screenshot_path or job.screenshot_path
             video_url = asyncio.run(generate_heygen_video_async(
                 job=job,
-                screenshot_url=screenshot_url,
-                mock=mock
+                screenshot_path=effective_screenshot,
+                mock=mock,
+                proposal_text=result.proposal_text  # Video narrates the proposal
             ))
             result.video_url = video_url
             if video_url:
@@ -857,7 +994,7 @@ async def generate_deliverables_async(
     generate_doc: bool = True,
     generate_pdf: bool = True,
     generate_video: bool = True,
-    screenshot_url: Optional[str] = None,
+    screenshot_path: Optional[str] = None,
     mock: bool = False
 ) -> DeliverableResult:
     """Async version of generate_deliverables."""
@@ -872,7 +1009,7 @@ async def generate_deliverables_async(
             generate_doc=generate_doc,
             generate_pdf=generate_pdf,
             generate_video=generate_video,
-            screenshot_url=screenshot_url,
+            screenshot_path=screenshot_path,
             mock=mock
         )
     )

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Upwork Job Template</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: #f7f7f7;
+    font-family: Inter, Arial, sans-serif;
+  }
+
+  .page {
+    width: 1280px;
+    height: 720px;
+    background: #fff;
+    margin: 0 auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Upwork Header */
+  .header {
+    background: #14a800;
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-size: 24px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+
+  .nav {
+    display: flex;
+    gap: 24px;
+  }
+
+  .nav a {
+    color: #fff;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0.9;
+  }
+
+  .nav a:hover {
+    opacity: 1;
+  }
+
+  .search-bar {
+    flex: 1;
+    max-width: 400px;
+    position: relative;
+  }
+
+  .search-bar input {
+    width: 100%;
+    padding: 10px 16px 10px 40px;
+    border: none;
+    border-radius: 20px;
+    font-size: 14px;
+    background: rgba(255,255,255,0.95);
+  }
+
+  .search-bar::before {
+    content: "🔍";
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    opacity: 0.5;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-left: auto;
+  }
+
+  .header-icon {
+    width: 20px;
+    height: 20px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 50%;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    background: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: #14a800;
+  }
+
+  /* Content area */
+  .content {
+    flex: 1;
+    padding: 20px 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .row {
+    margin-bottom: 14px;
+  }
+
+  .label {
+    font-size: 11px;
+    color: #6f6f6f;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .field {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 14px;
+    color: #222;
+    background: #fff;
+    min-height: 38px;
+  }
+
+  .field.title {
+    font-size: 18px;
+    font-weight: 600;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    border: none;
+    padding: 0;
+    background: transparent;
+    color: #001e00;
+  }
+
+  .field.summary {
+    height: 110px;
+    line-height: 1.55;
+    overflow: hidden;
+    font-size: 13px;
+  }
+
+  .inline-fields {
+    display: flex;
+    gap: 16px;
+  }
+
+  .inline-fields > div {
+    flex: 1;
+  }
+
+  .inline-fields .field {
+    width: 100%;
+  }
+
+  .skills-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .skill-tag {
+    background: #f0f0f0;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    color: #001e00;
+  }
+
+  /* Client info sidebar */
+  .client-info {
+    position: absolute;
+    top: 20px;
+    right: 32px;
+    width: 260px;
+    background: #fafafa;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .client-info h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 10px 0;
+    color: #222;
+  }
+
+  .client-stat {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .client-stat .stat-label {
+    color: #6f6f6f;
+  }
+
+  .client-stat .stat-value {
+    color: #222;
+    font-weight: 500;
+  }
+
+  .verified {
+    color: #14a800;
+    font-weight: 500;
+  }
+
+  /* Two column layout */
+  .main-content {
+    width: 920px;
+  }
+
+  /* Animation */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: fadeIn 0.4s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
+</head>
+
+<body>
+<div class="page">
+  <!-- Upwork Header -->
+  <div class="header fade-in" style="animation-delay: 0.1s">
+    <div class="logo">upwork</div>
+    <nav class="nav">
+      <a href="#">Find Work</a>
+      <a href="#">My Jobs</a>
+      <a href="#">Reports</a>
+      <a href="#">Messages</a>
+    </nav>
+    <div class="search-bar">
+      <input type="text" placeholder="Search for jobs" />
+    </div>
+    <div class="header-right">
+      <div class="header-icon"></div>
+      <div class="header-icon"></div>
+      <div class="avatar">NS</div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="main-content">
+      <div class="row fade-in" style="animation-delay: 0.2s">
+        <div class="field title" id="jobTitle">{{TITLE}}</div>
+      </div>
+
+      <div class="row fade-in" style="animation-delay: 0.5s">
+        <div class="label">Description</div>
+        <div class="field summary" id="summary">{{SUMMARY}}</div>
+      </div>
+
+      <div class="row inline-fields fade-in" style="animation-delay: 0.9s">
+        <div>
+          <div class="label">Budget</div>
+          <div class="field" id="budget">{{BUDGET}}</div>
+        </div>
+        <div>
+          <div class="label">Duration</div>
+          <div class="field" id="duration">{{DURATION}}</div>
+        </div>
+        <div>
+          <div class="label">Experience</div>
+          <div class="field" id="experience">{{EXPERIENCE}}</div>
+        </div>
+      </div>
+
+      <div class="row fade-in" style="animation-delay: 1.2s">
+        <div class="label">Project Type</div>
+        <div class="field" id="projectType">{{PROJECT_TYPE}}</div>
+      </div>
+
+      <div class="row fade-in" style="animation-delay: 1.5s">
+        <div class="label">Required Skills</div>
+        <div class="skills-row" id="skills">{{SKILLS_TAGS}}</div>
+      </div>
+    </div>
+
+    <div class="client-info fade-in" style="animation-delay: 0.7s">
+      <h3>About the Client</h3>
+      <div class="client-stat">
+        <span class="stat-label">Location</span>
+        <span class="stat-value" id="clientLocation">{{CLIENT_LOCATION}}</span>
+      </div>
+      <div class="client-stat">
+        <span class="stat-label">Payment</span>
+        <span class="stat-value verified" id="paymentVerified">{{PAYMENT_VERIFIED}}</span>
+      </div>
+      <div class="client-stat">
+        <span class="stat-label">Total Spent</span>
+        <span class="stat-value" id="clientSpent">{{CLIENT_SPENT}}</span>
+      </div>
+      <div class="client-stat">
+        <span class="stat-label">Hires</span>
+        <span class="stat-value" id="clientHires">{{CLIENT_HIRES}}</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

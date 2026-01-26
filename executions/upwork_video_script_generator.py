@@ -172,16 +172,18 @@ def generate_video_script(
     job: dict,
     job_analysis: Optional[JobAnalysis] = None,
     anthropic_client=None,
-    mock: bool = False
+    mock: bool = False,
+    proposal_text: Optional[str] = None
 ) -> VideoScript:
     """
-    Generate HeyGen video script based on job analysis.
+    Generate HeyGen video script based on the proposal.
 
     Args:
         job: Job data dictionary
         job_analysis: Pre-computed job analysis (optional, will compute if not provided)
         anthropic_client: Anthropic client (will create if not provided)
         mock: If True, return a mock script without calling API
+        proposal_text: The written proposal to convert into a spoken script
 
     Returns:
         VideoScript with script text and metadata
@@ -217,20 +219,48 @@ Clyde"""
         import anthropic
         anthropic_client = anthropic.Anthropic()
 
-    # Build the prompt
-    industry_instruction = ""
-    if job_analysis.industry:
-        industry_instruction = f"- Industry: {job_analysis.industry} (mention this in your script)"
+    # Build the prompt based on whether we have a proposal to convert
+    if proposal_text:
+        # Convert existing proposal to spoken script
+        prompt = f"""Convert this written proposal into a natural spoken video script (60-90 seconds).
+
+WRITTEN PROPOSAL:
+{proposal_text}
+
+JOB TITLE: {job.get('title', 'Unknown')}
+
+SPEAKER: {PROFILE['name']}
+
+YOUR TASK:
+Convert the above written proposal into a script that sounds natural when spoken aloud in a video.
+
+CRITICAL RULES:
+- {MIN_WORDS}-{MAX_WORDS} words MAXIMUM
+- Keep ALL the key points and specifics from the proposal
+- Make it conversational - remove formal letter language like "Dear", "Sincerely", etc.
+- Start with a friendly greeting that references their project
+- End with an invitation to discuss further and sign off as {PROFILE['name']}
+- ABSOLUTELY NO emojis or icons
+- NO bullet points or formatting - just flowing speech
+- Remove any written-only elements (URLs, links, etc.)
+- The content should match what's in the proposal - same examples, same approach, same value propositions
+
+Return ONLY the script text, ready to be spoken. No headers, no formatting markers, just the words."""
     else:
-        industry_instruction = "- Industry: Not specified (do NOT mention any specific industry)"
+        # Generate from scratch based on job analysis (fallback)
+        industry_instruction = ""
+        if job_analysis.industry:
+            industry_instruction = f"- Industry: {job_analysis.industry} (mention this in your script)"
+        else:
+            industry_instruction = "- Industry: Not specified (do NOT mention any specific industry)"
 
-    tools_str = ", ".join(PROFILE["tools"])
-    portfolio_str = ", ".join(PROFILE["portfolio_areas"])
-    requirements_str = "\n".join(f"  - {r}" for r in job_analysis.requirements)
-    goals_str = "\n".join(f"  - {g}" for g in job_analysis.goals)
-    skills_str = ", ".join(job_analysis.skills) if job_analysis.skills else "Not specified"
+        tools_str = ", ".join(PROFILE["tools"])
+        portfolio_str = ", ".join(PROFILE["portfolio_areas"])
+        requirements_str = "\n".join(f"  - {r}" for r in job_analysis.requirements)
+        goals_str = "\n".join(f"  - {g}" for g in job_analysis.goals)
+        skills_str = ", ".join(job_analysis.skills) if job_analysis.skills else "Not specified"
 
-    prompt = f"""Generate a 60-90 second video cover letter script for this Upwork job.
+        prompt = f"""Generate a 60-90 second video cover letter script for this Upwork job.
 
 JOB ANALYSIS:
 - Title: {job.get('title', 'Unknown')}
@@ -338,17 +368,20 @@ async def generate_video_script_async(
     job: dict,
     job_analysis: Optional[JobAnalysis] = None,
     anthropic_client=None,
-    mock: bool = False
+    mock: bool = False,
+    proposal_text: Optional[str] = None
 ) -> VideoScript:
     """Async wrapper for generate_video_script."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         None,
-        generate_video_script,
-        job,
-        job_analysis,
-        anthropic_client,
-        mock
+        lambda: generate_video_script(
+            job=job,
+            job_analysis=job_analysis,
+            anthropic_client=anthropic_client,
+            mock=mock,
+            proposal_text=proposal_text
+        )
     )
 
 
