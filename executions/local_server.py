@@ -80,7 +80,7 @@ app = FastAPI(title="Claude Orchestrator (Local)", version="1.0")
 # CORS middleware for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://localhost:5175"],
+    allow_origins=["http://localhost:3045", "http://127.0.0.1:3045"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -181,6 +181,25 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
 
     return payload
 
+async def get_current_user_optional(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None)
+) -> dict:
+    """Dependency for file endpoints - accepts auth via header OR query param."""
+    # Try header first
+    if authorization and authorization.startswith("Bearer "):
+        payload = verify_jwt(authorization[7:])
+        if payload:
+            return payload
+
+    # Try query parameter (for video/pdf elements that can't send headers)
+    if token:
+        payload = verify_jwt(token)
+        if payload:
+            return payload
+
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
 # ============================================================================
 # GOOGLE SHEETS UTILITIES
 # ============================================================================
@@ -253,8 +272,44 @@ def get_sheets_client():
         logger.error(f"Failed to authorize gspread: {e}")
         return None
 
-def get_all_jobs_from_sheet() -> List[Dict]:
-    """Get all jobs from Google Sheet."""
+# Helper function to normalize job IDs (handle scientific notation)
+def normalize_job_id(job_id_val) -> str:
+    """Convert job_id to string, handling scientific notation properly."""
+    if job_id_val is None:
+        return ""
+    if isinstance(job_id_val, float):
+        # Convert float back to int first to avoid scientific notation in string
+        try:
+            return str(int(job_id_val))
+        except (ValueError, OverflowError):
+            return str(job_id_val)
+    # Check if it's already a string in scientific notation
+    job_id_str = str(job_id_val)
+    if 'e' in job_id_str.lower():
+        try:
+            return str(int(float(job_id_str)))
+        except (ValueError, OverflowError):
+            return job_id_str
+    return job_id_str
+
+# Simple cache for jobs to reduce Sheets API calls
+_JOBS_CACHE = {
+    "data": [],
+    "last_fetch": None,
+    "ttl_seconds": 30  # Cache for 30 seconds to reduce API quota usage
+}
+
+def get_all_jobs_from_sheet(force_refresh: bool = False) -> List[Dict]:
+    """Get all jobs from Google Sheet with caching to reduce API calls."""
+    global _JOBS_CACHE
+
+    # Check cache
+    now = datetime.now(timezone.utc)
+    if not force_refresh and _JOBS_CACHE["last_fetch"]:
+        age = (now - _JOBS_CACHE["last_fetch"]).total_seconds()
+        if age < _JOBS_CACHE["ttl_seconds"] and _JOBS_CACHE["data"]:
+            return _JOBS_CACHE["data"]
+
     if not UPWORK_PIPELINE_SHEET_ID:
         return []
 
@@ -269,10 +324,10 @@ def get_all_jobs_from_sheet() -> List[Dict]:
 
         # Convert to proper types
         for record in records:
-            # IMPORTANT: Convert job_id to string to avoid JavaScript integer precision loss
+            # IMPORTANT: Normalize job_id to string, handling scientific notation
             # Job IDs like 2013368902031153977 exceed JavaScript's MAX_SAFE_INTEGER (9007199254740991)
             if record.get('job_id'):
-                record['job_id'] = str(record['job_id'])
+                record['job_id'] = normalize_job_id(record['job_id'])
 
             # Convert numeric fields
             for field in ['budget_min', 'budget_max', 'client_spent', 'fit_score', 'client_hires']:
@@ -289,10 +344,22 @@ def get_all_jobs_from_sheet() -> List[Dict]:
                 val = record.get(field, '')
                 record[field] = str(val).lower() in ('true', '1', 'yes')
 
+        # Update cache
+        _JOBS_CACHE["data"] = records
+        _JOBS_CACHE["last_fetch"] = now
         return records
     except Exception as e:
         logger.error(f"Failed to get jobs from sheet: {e}")
+        # Return cached data if available (better than empty on quota errors)
+        if _JOBS_CACHE["data"]:
+            logger.info("Returning cached job data due to API error")
+            return _JOBS_CACHE["data"]
         return []
+
+def invalidate_jobs_cache():
+    """Invalidate the jobs cache to force a refresh on next read."""
+    global _JOBS_CACHE
+    _JOBS_CACHE["last_fetch"] = None
 
 def get_job_from_sheet(job_id: str) -> Optional[Dict]:
     """Get a single job from Google Sheet by ID."""
@@ -347,6 +414,7 @@ def update_job_in_sheet(job_id: str, updates: Dict[str, Any]) -> bool:
 
         if batch_updates:
             worksheet.batch_update(batch_updates)
+            invalidate_jobs_cache()  # Invalidate cache after update
 
         return True
     except Exception as e:
@@ -379,6 +447,7 @@ def delete_job_from_sheet(job_id: str) -> bool:
 
         # Delete the row
         worksheet.delete_rows(row_index)
+        invalidate_jobs_cache()  # Invalidate cache after delete
         logger.info(f"Deleted job {job_id} from sheet (row {row_index})")
         return True
     except Exception as e:
@@ -428,6 +497,7 @@ def delete_jobs_from_sheet(job_ids: List[str]) -> int:
                 logger.error(f"Failed to delete row {row_index}: {e}")
 
         logger.info(f"Deleted {deleted_count} jobs from sheet")
+        invalidate_jobs_cache()  # Invalidate cache after bulk delete
         return deleted_count
     except Exception as e:
         logger.error(f"Failed to delete jobs: {e}")
@@ -786,6 +856,7 @@ async def api_delete_job(job_id: str, user: dict = Depends(get_current_user)):
 
 class JobStatusUpdateRequest(BaseModel):
     status: str  # new, scoring, extracting, generating, pending_approval, etc.
+    fit_score: Optional[int] = None  # Optional: override fit_score (e.g., 90 when user ignores low score)
 
 @app.patch("/api/jobs/{job_id}/status")
 async def api_update_job_status(job_id: str, request: JobStatusUpdateRequest, user: dict = Depends(get_current_user)):
@@ -797,13 +868,19 @@ async def api_update_job_status(job_id: str, request: JobStatusUpdateRequest, us
     if request.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
-    success = update_job_in_sheet(job_id, {"status": request.status})
+    # Build update dict
+    updates = {"status": request.status}
+    if request.fit_score is not None:
+        updates["fit_score"] = request.fit_score
+        updates["fit_reasoning"] = f"Score overridden to {request.fit_score} by user (ignored low score warning)"
+
+    success = update_job_in_sheet(job_id, updates)
 
     if not success:
         raise HTTPException(status_code=404, detail="Job not found or could not be updated")
 
-    logger.info(f"Job {job_id} status updated to {request.status}")
-    return {"success": True, "job_id": job_id, "status": request.status}
+    logger.info(f"Job {job_id} status updated to {request.status}" + (f" with fit_score={request.fit_score}" if request.fit_score else ""))
+    return {"success": True, "job_id": job_id, "status": request.status, "fit_score": request.fit_score}
 
 # ============================================================================
 # APPROVALS ENDPOINTS
@@ -1197,6 +1274,54 @@ async def api_get_active_video_generations(user: dict = Depends(get_current_user
         if status.get("started_at", "") > cutoff
     ]
     return {"video_generations": active, "count": len(active)}
+
+# File serving endpoints for local video/PDF files
+# Get project root (parent of executions directory)
+PROJECT_ROOT = Path(__file__).parent.parent
+
+@app.get("/api/files/video/{job_id}")
+async def api_serve_video(job_id: str, user: dict = Depends(get_current_user_optional)):
+    """Serve composed video file for a job."""
+    # Sanitize job_id to prevent path traversal
+    safe_job_id = re.sub(r'[^a-zA-Z0-9_-]', '', job_id)
+
+    # Check common video locations (use absolute paths from project root)
+    video_paths = [
+        PROJECT_ROOT / ".tmp" / "composed_videos" / f"composed_{safe_job_id}.mp4",
+        PROJECT_ROOT / "executions" / ".tmp" / "composed_videos" / f"composed_{safe_job_id}.mp4",
+    ]
+
+    for video_path in video_paths:
+        if video_path.exists():
+            return FileResponse(
+                str(video_path),
+                media_type="video/mp4",
+                filename=f"video_{safe_job_id}.mp4"
+            )
+
+    raise HTTPException(status_code=404, detail=f"Video file not found for job {safe_job_id}")
+
+@app.get("/api/files/pdf/{job_id}")
+async def api_serve_pdf(job_id: str, user: dict = Depends(get_current_user_optional)):
+    """Serve PDF file for a job."""
+    # Sanitize job_id to prevent path traversal
+    safe_job_id = re.sub(r'[^a-zA-Z0-9_-]', '', job_id)
+
+    # Check common PDF locations (use absolute paths from project root)
+    pdf_paths = [
+        PROJECT_ROOT / ".tmp" / f"proposal_{safe_job_id}.pdf",
+        PROJECT_ROOT / "executions" / ".tmp" / f"proposal_{safe_job_id}.pdf",
+    ]
+
+    for pdf_path in pdf_paths:
+        if pdf_path.exists():
+            return FileResponse(
+                str(pdf_path),
+                media_type="application/pdf",
+                filename=f"proposal_{safe_job_id}.pdf"
+            )
+
+    raise HTTPException(status_code=404, detail=f"PDF file not found for job {safe_job_id}")
 
 # ============================================================================
 # SUBMISSION MODE ENDPOINTS
@@ -1671,7 +1796,21 @@ async def api_trigger_pipeline(
 
                 try:
                     import asyncio
-                    from upwork_deep_extractor import UpworkDeepExtractor, extract_job_id_from_url
+                    import importlib.util
+
+                    # Use importlib for reliable import regardless of sys.path
+                    exec_dir = Path(__file__).parent
+                    extractor_path = exec_dir / "upwork_deep_extractor.py"
+
+                    if extractor_path.exists():
+                        spec = importlib.util.spec_from_file_location("upwork_deep_extractor", extractor_path)
+                        upwork_deep_extractor = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(upwork_deep_extractor)
+                        UpworkDeepExtractor = upwork_deep_extractor.UpworkDeepExtractor
+                        extract_job_id_from_url = upwork_deep_extractor.extract_job_id_from_url
+                        logger.info(f"Deep extractor loaded from {extractor_path}")
+                    else:
+                        raise ImportError(f"Deep extractor not found at {extractor_path}")
 
                     async def scrape_urls():
                         extracted_jobs = []
@@ -1998,23 +2137,25 @@ async def api_process_jobs(
 
     def process_jobs():
         try:
-            # Get job details from sheet
+            # Normalize requested job IDs to handle scientific notation
+            requested_ids = set(normalize_job_id(jid) for jid in request.job_ids)
+            logger.info(f"Normalized job IDs: {list(requested_ids)[:5]}...")
+
+            # Get job details from cached sheet data (reduces API calls)
             jobs_to_process = []
-            client = get_sheets_client()
-            if not client:
-                logger.error("Could not get sheets client")
+            all_data = get_all_jobs_from_sheet(force_refresh=True)  # Force refresh to get latest
+
+            if not all_data:
+                logger.error("Could not get jobs from sheet")
                 PIPELINE_STATUS["last_run_status"] = "error"
                 PIPELINE_STATUS["is_running"] = False
                 return
 
-            spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
-            worksheet = spreadsheet.get_worksheet(0)
-            all_data = worksheet.get_all_records()
-
             for row in all_data:
-                if str(row.get('job_id', '')) in request.job_ids:
+                row_job_id = normalize_job_id(row.get('job_id', ''))
+                if row_job_id in requested_ids:
                     jobs_to_process.append({
-                        'job_id': str(row.get('job_id', '')),
+                        'job_id': row_job_id,
                         'url': row.get('url', ''),
                         'title': row.get('title', ''),
                         'description': row.get('description', ''),
@@ -2755,4 +2896,4 @@ if frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8045)

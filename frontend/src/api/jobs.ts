@@ -149,10 +149,12 @@ export const processJobs = async (
 
 export const updateJobStatus = async (
   jobId: string,
-  status: string
-): Promise<{ success: boolean; job_id: string; status: string }> => {
+  status: string,
+  fitScore?: number
+): Promise<{ success: boolean; job_id: string; status: string; fit_score?: number }> => {
   const response = await apiClient.patch(`/jobs/${encodeURIComponent(jobId)}/status`, {
     status,
+    fit_score: fitScore,
   });
   return response.data;
 };

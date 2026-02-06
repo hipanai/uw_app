@@ -53,6 +53,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# Helper function to normalize job IDs (handle scientific notation)
+def normalize_job_id(job_id_val) -> str:
+    """Convert job_id to string, handling scientific notation properly."""
+    if job_id_val is None:
+        return ""
+    if isinstance(job_id_val, float):
+        # Convert float back to int first to avoid scientific notation in string
+        try:
+            return str(int(job_id_val))
+        except (ValueError, OverflowError):
+            return str(job_id_val)
+    # Check if it's already a string in scientific notation
+    job_id_str = str(job_id_val)
+    if 'e' in job_id_str.lower():
+        try:
+            return str(int(float(job_id_str)))
+        except (ValueError, OverflowError):
+            return job_id_str
+    return job_id_str
+
+
 # Try to load dotenv
 try:
     from dotenv import load_dotenv
@@ -263,7 +285,7 @@ class PipelineJob:
                 job_id = match.group(1)
 
         return cls(
-            job_id=str(job_id),
+            job_id=normalize_job_id(job_id),
             url=url,
             source='apify',
             title=job.get('title'),
@@ -274,7 +296,7 @@ class PipelineJob:
     def from_gmail_job(cls, job: dict) -> 'PipelineJob':
         """Create PipelineJob from Gmail monitor output."""
         return cls(
-            job_id=job.get('job_id', ''),
+            job_id=normalize_job_id(job.get('job_id', '')),
             url=job.get('url', ''),
             source='gmail',
             title=job.get('title'),
@@ -562,9 +584,10 @@ async def run_pipeline_async(
 
         if jobs:
             # Manual source - jobs provided directly
+            # Normalize job IDs to handle scientific notation from JSON/Sheets
             pipeline_jobs = [
                 PipelineJob(
-                    job_id=j.get('job_id', j.get('id', '')),
+                    job_id=normalize_job_id(j.get('job_id', j.get('id', ''))),
                     url=j.get('url', ''),
                     source='manual',
                     title=j.get('title'),
@@ -625,7 +648,10 @@ async def run_pipeline_async(
         # STAGE 2: Deduplicate
         logger.info(f"=== STAGE 2: Deduplicate ===")
 
-        if DEDUPLICATOR_AVAILABLE and not mock:
+        # Skip dedup for manual source - these are jobs already in the sheet that we want to reprocess
+        if source == "manual":
+            logger.info("Skipping dedup for manual source (reprocessing existing jobs)")
+        elif DEDUPLICATOR_AVAILABLE and not mock:
             job_dicts = [{'job_id': j.job_id, 'source': j.source} for j in pipeline_jobs]
             logger.debug(f"Job dicts for dedup: {job_dicts}")
             # Create deduplicator and check for new jobs

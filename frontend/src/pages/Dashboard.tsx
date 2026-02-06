@@ -1,9 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, type SubmissionStatus, type ActiveSubmissionsResponse, type SubmissionModeResponse } from '@/api/jobs';
+import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, type SubmissionStatus, type ActiveSubmissionsResponse, type SubmissionModeResponse } from '@/api/jobs';
 import type { VideoGenerationStatus, ActiveVideoGenerationsResponse } from '@/api/types';
 import type { Job, JobStatsResponse, JobStatus } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
 import { formatBudget, truncateText } from '@/lib/utils';
+import { getAuthToken } from '@/api/client';
+
+// Helper to convert local file paths to API URLs (with auth token for file endpoints)
+const getVideoUrl = (url: string | null | undefined, jobId: string | undefined): string | null => {
+  if (!url) return null;
+  // If it's already a full URL (http/https), return as-is
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  // If it's a local file path, convert to API endpoint with auth token
+  if (url.includes('.tmp') || url.includes('composed_') || url.endsWith('.mp4')) {
+    const token = getAuthToken();
+    return `/api/files/video/${jobId}${token ? `?token=${token}` : ''}`;
+  }
+  return url;
+};
+
+const getPdfUrl = (url: string | null | undefined, jobId: string | undefined): string | null => {
+  if (!url) return null;
+  // If it's already a full URL (http/https), return as-is
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  // If it's a local file path, convert to API endpoint with auth token
+  if (url.includes('.tmp') || url.includes('proposal_') || url.endsWith('.pdf')) {
+    const token = getAuthToken();
+    return `/api/files/pdf/${jobId}${token ? `?token=${token}` : ''}`;
+  }
+  return url;
+};
+
+// Helper to get Upwork job URL - constructs from job_id if url is missing
+const getUpworkUrl = (url: string | null | undefined, jobId: string | undefined): string => {
+  if (url && url.startsWith('http')) return url;
+  if (jobId) {
+    // Upwork job URLs follow pattern: https://www.upwork.com/jobs/~02{job_id}
+    const cleanId = String(jobId).replace(/^0+/, ''); // Remove leading zeros if any
+    return `https://www.upwork.com/jobs/~02${cleanId}`;
+  }
+  return '#';
+};
 
 type SortColumn = 'job_id' | 'title' | 'status' | 'fit_score' | 'budget' | 'source';
 type SortDirection = 'asc' | 'desc';
@@ -17,6 +54,7 @@ export function Dashboard() {
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [submitting, setSubmitting] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeSubmissions, setActiveSubmissions] = useState<Record<string, SubmissionStatus>>({});
   const [showSubmissions, setShowSubmissions] = useState(true);
@@ -113,7 +151,7 @@ export function Dashboard() {
     const interval = setInterval(() => {
       fetchSubmissions();
       fetchVideoGenerations();
-    }, 2000); // Poll every 2 seconds for real-time updates
+    }, 5000); // Poll every 5 seconds (reduced from 2s to avoid API quota issues)
 
     // Refresh mode less frequently
     const modeInterval = setInterval(() => {
@@ -273,25 +311,91 @@ export function Dashboard() {
   // Check if any selected jobs are unscored (processable)
   const hasUnscoredSelected = jobs.some(j => selectedJobs.has(j.job_id || '') && j.fit_score == null);
 
-  // Handle continuing processing for filtered jobs (reset status to extracting to skip scoring)
+  // Handle continuing processing for filtered jobs (reset status and set score to 90)
   const handleContinueProcessing = async (jobId: string) => {
-    if (!confirm('Reset this job to continue processing? It will skip scoring and go to extraction.')) return;
+    if (!confirm('Continue processing this job? The fit score will be set to 90 and processing will resume.')) return;
 
     setProcessing(true);
     try {
-      // Reset status to 'extracting' to skip scoring but continue pipeline
-      await updateJobStatus(jobId, 'new');
+      // Reset status to 'new' and set fit_score to 90 (user override)
+      await updateJobStatus(jobId, 'new', 90);
       // Then process it
       const result = await processJobs([jobId], 0); // min_score 0 to not filter again
       alert(`Processing started: ${result.message}`);
-      // Update local state
-      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, status: 'scoring' as JobStatus } : j));
+      // Update local state with new score
+      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, status: 'scoring' as JobStatus, fit_score: 90 } : j));
       setAutoRefresh(true);
     } catch (err) {
       console.error('Failed to continue processing:', err);
       alert('Failed to continue processing');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // Handle retrying stuck jobs (scoring, extracting, generating)
+  const handleRetryProcessing = async (jobId: string, currentStatus: string) => {
+    const statusLabels: Record<string, string> = {
+      scoring: 'scoring',
+      extracting: 'extraction',
+      generating: 'generation',
+    };
+    const label = statusLabels[currentStatus] || currentStatus;
+
+    if (!confirm(`Retry processing for this job? It appears stuck in ${label}. This will reset it and restart processing.`)) return;
+
+    setProcessing(true);
+    try {
+      // Reset to 'new' to restart the pipeline
+      await updateJobStatus(jobId, 'new');
+      // Process with min_score 0 to ensure it goes through
+      const result = await processJobs([jobId], 0);
+      alert(`Processing restarted: ${result.message}`);
+      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, status: 'scoring' as JobStatus } : j));
+      setAutoRefresh(true);
+    } catch (err) {
+      console.error('Failed to retry processing:', err);
+      alert('Failed to retry processing. The pipeline may already be running.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle regenerating video for approved jobs missing video
+  const handleRegenerateVideo = async (jobId: string) => {
+    if (!confirm('Regenerate video for this job? This will re-trigger video generation.')) return;
+
+    setProcessing(true);
+    try {
+      // Re-approve to trigger video generation again
+      await approveJob(jobId);
+      alert('Video generation started! Check the Video Generation panel for progress.');
+      setAutoRefresh(true);
+    } catch (err) {
+      console.error('Failed to regenerate video:', err);
+      alert('Failed to start video generation.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle job submission to Upwork
+  const handleSubmitJob = async (jobId: string) => {
+    if (!confirm('Submit this proposal to Upwork?')) return;
+
+    setSubmitting(jobId);
+    try {
+      await submitJob(jobId);
+      alert('Submission started! Check the Active Submissions panel for progress.');
+      // Update local state to show it's being submitted
+      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, status: 'submitting' as JobStatus } : j));
+      // Enable auto-refresh to track progress
+      setAutoRefresh(true);
+    } catch (err) {
+      console.error('Failed to submit job:', err);
+      alert('Failed to start submission. Check if the job is approved and has all required data.');
+    } finally {
+      setSubmitting(null);
     }
   };
 
@@ -584,7 +688,7 @@ export function Dashboard() {
                     <div className="px-4 py-2 bg-green-50 flex items-center justify-between">
                       <span className="text-green-700 text-sm font-medium">Video generated successfully!</span>
                       <a
-                        href={videoGen.video_url}
+                        href={getVideoUrl(videoGen.video_url, videoGen.job_id)!}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
@@ -753,7 +857,7 @@ export function Dashboard() {
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <a
-                          href={job.url || '#'}
+                          href={getUpworkUrl(job.url, job.job_id)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:underline"
@@ -794,6 +898,61 @@ export function Dashboard() {
                         {job.source || 'unknown'}
                       </td>
                       <td className="px-4 py-3 flex gap-2">
+                        {/* Submit button - show for approved jobs with video */}
+                        {job.status === 'approved' && job.video_url && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              job.job_id && handleSubmitJob(job.job_id);
+                            }}
+                            disabled={submitting === job.job_id || processing || deleting}
+                            className="text-green-600 hover:text-green-800 disabled:opacity-50"
+                            title="Submit to Upwork"
+                          >
+                            {submitting === job.job_id ? (
+                              <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </button>
+                        )}
+                        {/* Retry button - show for stuck jobs in intermediate states */}
+                        {(job.status === 'scoring' || job.status === 'extracting' || job.status === 'generating') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              job.job_id && handleRetryProcessing(job.job_id, job.status);
+                            }}
+                            disabled={processing || deleting}
+                            className="text-yellow-600 hover:text-yellow-800 disabled:opacity-50"
+                            title={`Retry processing (stuck in ${job.status})`}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        )}
+                        {/* Regenerate video button - show for approved jobs without video */}
+                        {job.status === 'approved' && !job.video_url && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              job.job_id && handleRegenerateVideo(job.job_id);
+                            }}
+                            disabled={processing || deleting}
+                            className="text-purple-600 hover:text-purple-800 disabled:opacity-50"
+                            title="Regenerate video (video generation may have failed)"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                            </svg>
+                          </button>
+                        )}
                         {/* Continue Processing button - show for filtered_out jobs */}
                         {isFiltered && (
                           <button
@@ -857,9 +1016,9 @@ export function Dashboard() {
                                   Generated Assets
                                 </h4>
                                 <div className="flex flex-wrap gap-3">
-                                  {job.video_url && (
+                                  {getVideoUrl(job.video_url, job.job_id) && (
                                     <a
-                                      href={job.video_url}
+                                      href={getVideoUrl(job.video_url, job.job_id)!}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
@@ -870,9 +1029,9 @@ export function Dashboard() {
                                       Watch Video
                                     </a>
                                   )}
-                                  {job.pdf_url && (
+                                  {getPdfUrl(job.pdf_url, job.job_id) && (
                                     <a
-                                      href={job.pdf_url}
+                                      href={getPdfUrl(job.pdf_url, job.job_id)!}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
@@ -942,6 +1101,33 @@ export function Dashboard() {
                               </div>
                             )}
                             {/* Action buttons in expanded view */}
+                            {/* Submit button for approved jobs with video */}
+                            {job.status === 'approved' && job.video_url && (
+                              <div className="flex gap-2 pt-2 border-t dark:border-gray-600 mt-4">
+                                <button
+                                  onClick={() => job.job_id && handleSubmitJob(job.job_id)}
+                                  disabled={submitting === job.job_id || processing || deleting}
+                                  className="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2"
+                                >
+                                  {submitting === job.job_id ? (
+                                    <>
+                                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                      Starting Submission...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
+                                      </svg>
+                                      Submit to Upwork
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
                             {isFiltered && (
                               <div className="flex gap-2 pt-2">
                                 <button
