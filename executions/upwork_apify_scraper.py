@@ -22,6 +22,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Allow callers to use uw_app_assist flash_mage scraper as drop-in replacement
+try:
+    from uw_app_assist.scraper import scrape_upwork_jobs as _flash_mage_scraper
+    FLASH_MAGE_AVAILABLE = True
+except ImportError:
+    FLASH_MAGE_AVAILABLE = False
+
 
 def scrape_upwork_jobs(
     limit: int = 50,

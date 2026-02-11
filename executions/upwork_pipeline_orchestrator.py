@@ -87,12 +87,20 @@ PREFILTER_MIN_SCORE = int(os.getenv("PREFILTER_MIN_SCORE", "70"))
 UPWORK_PIPELINE_SHEET_ID = os.getenv("UPWORK_PIPELINE_SHEET_ID")
 
 # Import pipeline components
+# Prefer uw_app_assist (flash_mage actor) over legacy upwork-vibe scraper
 try:
-    from upwork_apify_scraper import scrape_upwork_jobs, filter_jobs
+    from uw_app_assist.scraper import scrape_upwork_jobs
+    from upwork_apify_scraper import filter_jobs
     APIFY_AVAILABLE = True
+    logger.info("Using uw_app_assist flash_mage scraper")
 except ImportError:
-    APIFY_AVAILABLE = False
-    logger.warning("upwork_apify_scraper not available")
+    try:
+        from upwork_apify_scraper import scrape_upwork_jobs, filter_jobs
+        APIFY_AVAILABLE = True
+        logger.info("Using legacy upwork_apify_scraper")
+    except ImportError:
+        APIFY_AVAILABLE = False
+        logger.warning("No Apify scraper available")
 
 try:
     from upwork_gmail_monitor import check_gmail_for_upwork_jobs

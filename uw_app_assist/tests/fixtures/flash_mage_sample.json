@@ -1,0 +1,128 @@
+[
+  {
+    "id": "sample-001",
+    "title": "Need Python Automation Expert for Web Scraping Project",
+    "link": "https://www.upwork.com/jobs/~01abc123def456",
+    "data": {
+      "opening": {
+        "info": {
+          "ciphertext": "~01abc123def456",
+          "title": "Need Python Automation Expert for Web Scraping Project",
+          "type": "Hourly"
+        },
+        "description": "We are looking for a Python developer experienced with web scraping, Selenium, and data automation. The project involves building a reliable scraping pipeline for e-commerce data extraction.\n\nRequirements:\n- Python 3.10+\n- Selenium/Playwright experience\n- API integration\n- Error handling and logging\n\nPlease share relevant portfolio examples.",
+        "postedOn": "2025-05-10T14:30:00Z",
+        "contractorTier": 2,
+        "budget": {
+          "amount": null
+        },
+        "extendedBudgetInfo": {
+          "hourlyBudgetMin": 30,
+          "hourlyBudgetMax": 60
+        },
+        "sandsData": {
+          "ontologySkills": [
+            {"prettyName": "Python"},
+            {"prettyName": "Web Scraping"},
+            {"prettyName": "Selenium"},
+            {"prettyName": "Data Extraction"},
+            {"prettyName": "API Integration"}
+          ]
+        },
+        "buyer": {
+          "location": {
+            "country": "United States"
+          },
+          "stats": {
+            "totalCharges": {"amount": 125000.50},
+            "totalAssignments": 47,
+            "score": 4.9
+          }
+        },
+        "buyerExtra": {
+          "isPaymentMethodVerified": true
+        }
+      }
+    }
+  },
+  {
+    "id": "sample-002",
+    "title": "Build React Dashboard for Analytics Platform",
+    "link": "https://www.upwork.com/jobs/~02xyz789ghi012",
+    "data": {
+      "opening": {
+        "info": {
+          "ciphertext": "~02xyz789ghi012",
+          "title": "Build React Dashboard for Analytics Platform",
+          "type": "Fixed"
+        },
+        "description": "Looking for a React developer to build a modern analytics dashboard. Must include charts, filters, and real-time data updates.",
+        "postedOn": "2025-05-09T08:00:00Z",
+        "contractorTier": 3,
+        "budget": {
+          "amount": 5000
+        },
+        "extendedBudgetInfo": {},
+        "sandsData": {
+          "ontologySkills": [
+            {"prettyName": "React"},
+            {"prettyName": "TypeScript"},
+            {"prettyName": "D3.js"}
+          ]
+        },
+        "buyer": {
+          "location": {
+            "country": "United Kingdom"
+          },
+          "stats": {
+            "totalCharges": {"amount": 50000},
+            "totalAssignments": 12,
+            "score": 4.7
+          }
+        },
+        "buyerExtra": {
+          "isPaymentMethodVerified": true
+        }
+      }
+    }
+  },
+  {
+    "id": "sample-003",
+    "title": "Simple Data Entry Task",
+    "link": "https://www.upwork.com/jobs/~03nopq345rst678",
+    "data": {
+      "opening": {
+        "info": {
+          "ciphertext": "~03nopq345rst678",
+          "title": "Simple Data Entry Task",
+          "type": "Fixed"
+        },
+        "description": "Need someone to enter data from PDFs into a spreadsheet.",
+        "postedOn": "2025-05-08T20:00:00Z",
+        "contractorTier": 1,
+        "budget": {
+          "amount": 100
+        },
+        "extendedBudgetInfo": {},
+        "sandsData": {
+          "ontologySkills": [
+            {"prettyName": "Data Entry"}
+          ]
+        },
+        "buyer": {
+          "location": {
+            "country": "India"
+          },
+          "stats": {
+            "totalCharges": {"amount": 500},
+            "totalAssignments": 2,
+            "score": 3.5
+          }
+        },
+        "buyerExtra": {
+          "isPaymentMethodVerified": false
+        }
+      }
+    }
+  }
+]

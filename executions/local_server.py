@@ -399,12 +399,14 @@ def update_job_in_sheet(job_id: str, updates: Dict[str, Any]) -> bool:
         spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
         worksheet = spreadsheet.get_worksheet(0)
 
-        # Find the job row
-        all_job_ids = worksheet.col_values(1)
+        # Use get_all_records() for matching — same path as get_all_jobs_from_sheet()
+        # This avoids precision mismatches between col_values() and get_all_records()
+        records = worksheet.get_all_records()
+        normalized_target = normalize_job_id(job_id)
         row_index = None
-        for i, cell_value in enumerate(all_job_ids):
-            if cell_value == job_id:
-                row_index = i + 1
+        for i, record in enumerate(records):
+            if normalize_job_id(record.get('job_id', '')) == normalized_target:
+                row_index = i + 2  # +2: 1-indexed + skip header row
                 break
 
         if not row_index:
@@ -451,12 +453,14 @@ def delete_job_from_sheet(job_id: str) -> bool:
         spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
         worksheet = spreadsheet.get_worksheet(0)
 
-        # Find the job row
-        all_job_ids = worksheet.col_values(1)
+        # Use get_all_records() for matching — same path as get_all_jobs_from_sheet()
+        # This avoids precision mismatches between col_values() and get_all_records()
+        records = worksheet.get_all_records()
+        normalized_target = normalize_job_id(job_id)
         row_index = None
-        for i, cell_value in enumerate(all_job_ids):
-            if cell_value == job_id:
-                row_index = i + 1
+        for i, record in enumerate(records):
+            if normalize_job_id(record.get('job_id', '')) == normalized_target:
+                row_index = i + 2  # +2: 1-indexed + skip header row
                 break
 
         if not row_index:
@@ -491,13 +495,15 @@ def delete_jobs_from_sheet(job_ids: List[str]) -> int:
         spreadsheet = client.open_by_key(UPWORK_PIPELINE_SHEET_ID)
         worksheet = spreadsheet.get_worksheet(0)
 
-        # Find all matching rows
-        all_job_ids = worksheet.col_values(1)
+        # Use get_all_records() for matching — same path as get_all_jobs_from_sheet()
+        # This avoids precision mismatches between col_values() and get_all_records()
+        records = worksheet.get_all_records()
         rows_to_delete = []
 
-        for i, cell_value in enumerate(all_job_ids):
-            if cell_value in job_ids:
-                rows_to_delete.append(i + 1)  # 1-indexed
+        normalized_targets = {normalize_job_id(jid) for jid in job_ids}
+        for i, record in enumerate(records):
+            if normalize_job_id(record.get('job_id', '')) in normalized_targets:
+                rows_to_delete.append(i + 2)  # +2: 1-indexed + skip header
 
         if not rows_to_delete:
             return 0
@@ -636,7 +642,7 @@ def add_jobs_to_sheet(jobs: List[Dict]) -> int:
 
         # Batch add all new rows
         if rows_to_add:
-            worksheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
+            worksheet.append_rows(rows_to_add, value_input_option='RAW')
             logger.info(f"Added {added_count} jobs to sheet")
 
         return added_count
@@ -1311,9 +1317,18 @@ async def api_update_proposal(
         "message": "Proposal updated"
     }
 
+# Check for Apify-based submitter (uw_app_assist)
+try:
+    from uw_app_assist.submitter import submit_application as apify_submit_application
+    USE_APIFY_SUBMITTER = True
+    logger.info("Apify submitter (uw_app_assist) available")
+except ImportError:
+    USE_APIFY_SUBMITTER = False
+
+
 @app.post("/api/approvals/{job_id}/submit")
 async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
-    """Trigger actual submission for an approved job using Playwright."""
+    """Trigger actual submission for an approved job using Playwright or Apify."""
     # First check job is approved
     jobs = get_all_jobs_from_sheet()
     job = next((j for j in jobs if j.get("job_id") == job_id), None)
@@ -1350,6 +1365,51 @@ async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
 
     def run_submission():
         try:
+            # --- Apify-based submission path ---
+            if USE_APIFY_SUBMITTER:
+                add_submission_log(job_id, "Using Apify submitter (big-brain.io actor)")
+                update_submission_status(job_id, stage="submitting_via_apify")
+
+                should_boost = job.get("boost_decision", False)
+                result = apify_submit_application(
+                    job_url=job_url,
+                    proposal_text=proposal_text,
+                    should_boost=should_boost,
+                )
+
+                if result.status == "success":
+                    update_submission_status(
+                        job_id,
+                        status="completed",
+                        stage="success",
+                        result=result.to_dict(),
+                    )
+                    add_submission_log(job_id, f"SUCCESS: {result.confirmation_message or 'Submitted via Apify'}")
+                    update_job_in_sheet(job_id, {
+                        "status": "submitted",
+                        "submitted_at": result.submitted_at or datetime.now(timezone.utc).isoformat(),
+                        "error_log": "",
+                    })
+                    PIPELINE_STATUS["jobs_processed_today"] += 1
+                else:
+                    error_msg = result.error or "Unknown error"
+                    update_submission_status(
+                        job_id,
+                        status="failed",
+                        stage="error",
+                        error=error_msg,
+                        result=result.to_dict(),
+                    )
+                    add_submission_log(job_id, f"FAILED: {error_msg}")
+                    for err in result.error_log:
+                        add_submission_log(job_id, f"  - {err}")
+                    update_job_in_sheet(job_id, {
+                        "status": "submission_failed",
+                        "error_log": json.dumps(result.error_log) if result.error_log else error_msg,
+                    })
+                return  # Done with Apify path
+
+            # --- Legacy Playwright-based submission path ---
             from upwork_submitter import UpworkSubmitter, SubmissionStatus
             import asyncio
 
