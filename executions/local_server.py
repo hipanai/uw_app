@@ -1320,6 +1320,7 @@ async def api_update_proposal(
 # Check for Apify-based submitter (uw_app_assist)
 try:
     from uw_app_assist.submitter import submit_application as apify_submit_application
+    from uw_app_assist.submitter import embed_attachment_links
     USE_APIFY_SUBMITTER = True
     logger.info("Apify submitter (uw_app_assist) available")
 except ImportError:
@@ -1371,9 +1372,14 @@ async def api_submit_job(job_id: str, user: dict = Depends(get_current_user)):
                 update_submission_status(job_id, stage="submitting_via_apify")
 
                 should_boost = job.get("boost_decision", False)
+                enriched_text = embed_attachment_links(
+                    proposal_text,
+                    video_url=job.get("video_url"),
+                    pdf_url=job.get("pdf_url"),
+                )
                 result = apify_submit_application(
                     job_url=job_url,
-                    proposal_text=proposal_text,
+                    proposal_text=enriched_text,
                     should_boost=should_boost,
                 )
 
@@ -1816,8 +1822,50 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
         logger.error(f"[Auto] Video generation failed for {job_id}: {e}")
 
 async def run_auto_submit(job_id: str, job_data: dict, video_url: str):
-    """Auto-submit job to Upwork."""
+    """Auto-submit job to Upwork via Apify (preferred) or Playwright."""
     try:
+        # --- Apify path (text-only, links embedded in cover letter) ---
+        if USE_APIFY_SUBMITTER:
+            update_submission_status(job_id, status="in_progress", stage="auto_submitting")
+            add_submission_log(job_id, "[AUTO] Starting automatic submission via Apify...")
+
+            job_url = job_data.get("url")
+            proposal_text = job_data.get("proposal_text")
+
+            if not job_url or not proposal_text:
+                add_submission_log(job_id, "ERROR: Missing job URL or proposal text")
+                update_submission_status(job_id, status="failed", error="Missing required data")
+                return
+
+            enriched_text = embed_attachment_links(
+                proposal_text,
+                video_url=video_url,
+                pdf_url=job_data.get("pdf_url"),
+            )
+
+            should_boost = job_data.get("boost_decision", False)
+            result = apify_submit_application(
+                job_url=job_url,
+                proposal_text=enriched_text,
+                should_boost=should_boost,
+            )
+
+            if result.status == "success":
+                update_submission_status(job_id, status="completed", stage="done", result=result.to_dict())
+                add_submission_log(job_id, f"[AUTO] SUCCESS: {result.confirmation_message or 'Submitted via Apify'}")
+                update_job_in_sheet(job_id, {
+                    "status": "submitted",
+                    "submitted_at": result.submitted_at or datetime.now(timezone.utc).isoformat(),
+                })
+                PIPELINE_STATUS["jobs_processed_today"] += 1
+            else:
+                error_msg = result.error or "Unknown error"
+                update_submission_status(job_id, status="failed", error=error_msg)
+                add_submission_log(job_id, f"[AUTO] FAILED: {error_msg}")
+                update_job_in_sheet(job_id, {"status": "submission_failed", "error_log": error_msg})
+            return
+
+        # --- Playwright path (file attachments) ---
         from upwork_submitter import UpworkSubmitter, SubmissionStatus
 
         update_submission_status(job_id, status="in_progress", stage="auto_submitting")
