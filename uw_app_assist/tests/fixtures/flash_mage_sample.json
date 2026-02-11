@@ -1,127 +1,401 @@
 [
   {
-    "id": "sample-001",
+    "id": 0,
+    "type": "detail",
+    "type_description": "return public detail job info",
     "title": "Need Python Automation Expert for Web Scraping Project",
     "link": "https://www.upwork.com/jobs/~01abc123def456",
     "data": {
       "opening": {
+        "status": "ACTIVE",
+        "postedOn": "2025-05-10T14:30:00Z",
+        "publishTime": "2025-05-10T14:30:30Z",
+        "sourcingTime": null,
+        "startDate": null,
+        "deliveryDate": null,
+        "workload": "Less than 30 hrs/week",
+        "contractorTier": "INTERMEDIATE",
+        "description": "We are looking for a Python developer experienced with web scraping, Selenium, and data automation. The project involves building a reliable scraping pipeline for e-commerce data extraction.\n\nRequirements:\n- Python 3.10+\n- Selenium/Playwright experience\n- API integration\n- Error handling and logging\n\nPlease share relevant portfolio examples.",
         "info": {
           "ciphertext": "~01abc123def456",
+          "id": "01abc123def456",
+          "type": "HOURLY",
+          "access": "PUBLIC_INDEX",
           "title": "Need Python Automation Expert for Web Scraping Project",
-          "type": "Hourly"
+          "hideBudget": false,
+          "createdOn": "2025-05-10T14:30:00Z",
+          "notSureProjectDuration": false,
+          "notSureFreelancersToHire": false,
+          "notSureExperienceLevel": false,
+          "notSureLocationPreference": false,
+          "premium": false
         },
-        "description": "We are looking for a Python developer experienced with web scraping, Selenium, and data automation. The project involves building a reliable scraping pipeline for e-commerce data extraction.\n\nRequirements:\n- Python 3.10+\n- Selenium/Playwright experience\n- API integration\n- Error handling and logging\n\nPlease share relevant portfolio examples.",
-        "postedOn": "2025-05-10T14:30:00Z",
-        "contractorTier": 2,
+        "segmentationData": [
+          {
+            "customValue": null,
+            "label": "Complex project",
+            "name": "Employment",
+            "sortOrder": 2,
+            "type": "EMPLOYMENT",
+            "value": "EMPLOYMENT_COMPLEX_PROJECT",
+            "skill": null
+          }
+        ],
+        "sandsData": {
+          "occupation": {
+            "freeText": null,
+            "ontologyId": "upworkOccupation:backenddevelopment",
+            "prefLabel": "Back-End Development",
+            "id": "1110580748673863680",
+            "uid": "1110580748673863680"
+          },
+          "ontologySkills": [
+            {
+              "groupId": "1110580497527328768",
+              "id": "996364628025274386",
+              "freeText": null,
+              "prefLabel": "Python",
+              "groupPrefLabel": "Back-End Programming Languages",
+              "relevance": "MANDATORY"
+            },
+            {
+              "groupId": null,
+              "id": "1031626795106340864",
+              "freeText": null,
+              "prefLabel": "Web Scraping",
+              "relevance": "MANDATORY"
+            }
+          ],
+          "additionalSkills": [
+            {
+              "groupId": null,
+              "id": "1031626779826356224",
+              "freeText": null,
+              "prefLabel": "Selenium",
+              "relevance": "MANDATORY"
+            },
+            {
+              "groupId": null,
+              "id": "1031626728819720192",
+              "freeText": null,
+              "prefLabel": "Data Extraction",
+              "relevance": "MANDATORY"
+            },
+            {
+              "groupId": null,
+              "id": "1031626714680418304",
+              "freeText": null,
+              "prefLabel": "API Integration",
+              "relevance": "MANDATORY"
+            }
+          ]
+        },
+        "category": {
+          "name": "Web Development",
+          "urlSlug": "web-development"
+        },
+        "categoryGroup": {
+          "name": "Web, Mobile & Software Dev",
+          "urlSlug": "web-mobile-software-dev"
+        },
         "budget": {
-          "amount": null
+          "amount": 0,
+          "currencyCode": "USD"
+        },
+        "annotations": {
+          "tags": ["contractToHireSet", "searchable"]
+        },
+        "engagementDuration": {
+          "label": "1 to 3 months",
+          "weeks": 8
         },
         "extendedBudgetInfo": {
           "hourlyBudgetMin": 30,
-          "hourlyBudgetMax": 60
-        },
-        "sandsData": {
-          "ontologySkills": [
-            {"prettyName": "Python"},
-            {"prettyName": "Web Scraping"},
-            {"prettyName": "Selenium"},
-            {"prettyName": "Data Extraction"},
-            {"prettyName": "API Integration"}
-          ]
-        },
-        "buyer": {
-          "location": {
-            "country": "United States"
-          },
-          "stats": {
-            "totalCharges": {"amount": 125000.50},
-            "totalAssignments": 47,
-            "score": 4.9
-          }
-        },
-        "buyerExtra": {
-          "isPaymentMethodVerified": true
+          "hourlyBudgetMax": 60,
+          "hourlyBudgetType": "MANUAL"
         }
       }
     }
   },
   {
-    "id": "sample-002",
+    "id": 1,
+    "type": "detail",
+    "type_description": "return public detail job info",
     "title": "Build React Dashboard for Analytics Platform",
     "link": "https://www.upwork.com/jobs/~02xyz789ghi012",
     "data": {
       "opening": {
+        "status": "ACTIVE",
+        "postedOn": "2025-05-09T08:00:00Z",
+        "publishTime": "2025-05-09T08:00:30Z",
+        "sourcingTime": null,
+        "startDate": null,
+        "deliveryDate": null,
+        "workload": null,
+        "contractorTier": "EXPERT",
+        "description": "Looking for a React developer to build a modern analytics dashboard. Must include charts, filters, and real-time data updates.",
         "info": {
           "ciphertext": "~02xyz789ghi012",
+          "id": "02xyz789ghi012",
+          "type": "FIXED",
+          "access": "PUBLIC_INDEX",
           "title": "Build React Dashboard for Analytics Platform",
-          "type": "Fixed"
+          "hideBudget": false,
+          "createdOn": "2025-05-09T08:00:00Z",
+          "notSureProjectDuration": false,
+          "notSureFreelancersToHire": false,
+          "notSureExperienceLevel": false,
+          "notSureLocationPreference": false,
+          "premium": false
         },
-        "description": "Looking for a React developer to build a modern analytics dashboard. Must include charts, filters, and real-time data updates.",
-        "postedOn": "2025-05-09T08:00:00Z",
-        "contractorTier": 3,
-        "budget": {
-          "amount": 5000
-        },
-        "extendedBudgetInfo": {},
+        "segmentationData": [
+          {
+            "customValue": null,
+            "label": "One-time project",
+            "name": "Employment",
+            "sortOrder": 0,
+            "type": "EMPLOYMENT",
+            "value": "EMPLOYMENT_PROJECT",
+            "skill": null
+          }
+        ],
         "sandsData": {
-          "ontologySkills": [
-            {"prettyName": "React"},
-            {"prettyName": "TypeScript"},
-            {"prettyName": "D3.js"}
+          "occupation": {
+            "freeText": null,
+            "ontologyId": "upworkOccupation:frontenddevelopment",
+            "prefLabel": "Front-End Development",
+            "id": "1110580748673863681",
+            "uid": "1110580748673863681"
+          },
+          "ontologySkills": null,
+          "additionalSkills": [
+            {
+              "groupId": null,
+              "id": "1031626774365405184",
+              "freeText": null,
+              "prefLabel": "React",
+              "relevance": "MANDATORY"
+            },
+            {
+              "groupId": null,
+              "id": "1031626790962397184",
+              "freeText": null,
+              "prefLabel": "TypeScript",
+              "relevance": "MANDATORY"
+            },
+            {
+              "groupId": null,
+              "id": "1031626728517730304",
+              "freeText": null,
+              "prefLabel": "D3.js",
+              "relevance": "MANDATORY"
+            }
           ]
         },
-        "buyer": {
-          "location": {
-            "country": "United Kingdom"
-          },
-          "stats": {
-            "totalCharges": {"amount": 50000},
-            "totalAssignments": 12,
-            "score": 4.7
-          }
+        "category": {
+          "name": "Web Development",
+          "urlSlug": "web-development"
         },
-        "buyerExtra": {
-          "isPaymentMethodVerified": true
-        }
+        "categoryGroup": {
+          "name": "Web, Mobile & Software Dev",
+          "urlSlug": "web-mobile-software-dev"
+        },
+        "budget": {
+          "amount": 5000,
+          "currencyCode": "USD"
+        },
+        "annotations": {
+          "tags": ["searchable"]
+        },
+        "engagementDuration": {
+          "label": "1 to 3 months",
+          "weeks": 8
+        },
+        "extendedBudgetInfo": {}
       }
     }
   },
   {
-    "id": "sample-003",
+    "id": 2,
+    "type": "detail",
+    "type_description": "return public detail job info",
     "title": "Simple Data Entry Task",
     "link": "https://www.upwork.com/jobs/~03nopq345rst678",
     "data": {
       "opening": {
+        "status": "ACTIVE",
+        "postedOn": "2025-05-08T20:00:00Z",
+        "publishTime": "2025-05-08T20:00:30Z",
+        "sourcingTime": "2025-05-08T20:01:00Z",
+        "startDate": null,
+        "deliveryDate": null,
+        "workload": "Less than 30 hrs/week",
+        "contractorTier": "ENTRY_LEVEL",
+        "description": "Need someone to enter data from PDFs into a spreadsheet.",
         "info": {
           "ciphertext": "~03nopq345rst678",
+          "id": "03nopq345rst678",
+          "type": "FIXED",
+          "access": "PUBLIC_INDEX",
           "title": "Simple Data Entry Task",
-          "type": "Fixed"
+          "hideBudget": false,
+          "createdOn": "2025-05-08T20:00:00Z",
+          "notSureProjectDuration": false,
+          "notSureFreelancersToHire": false,
+          "notSureExperienceLevel": false,
+          "notSureLocationPreference": false,
+          "premium": false
         },
-        "description": "Need someone to enter data from PDFs into a spreadsheet.",
-        "postedOn": "2025-05-08T20:00:00Z",
-        "contractorTier": 1,
-        "budget": {
-          "amount": 100
-        },
-        "extendedBudgetInfo": {},
+        "segmentationData": [
+          {
+            "customValue": null,
+            "label": "One-time project",
+            "name": "Employment",
+            "sortOrder": 0,
+            "type": "EMPLOYMENT",
+            "value": "EMPLOYMENT_PROJECT",
+            "skill": null
+          }
+        ],
         "sandsData": {
-          "ontologySkills": [
-            {"prettyName": "Data Entry"}
+          "occupation": {
+            "freeText": null,
+            "ontologyId": "upworkOccupation:dataentry",
+            "prefLabel": "Data Entry",
+            "id": "1017484851352698900",
+            "uid": "1017484851352698900"
+          },
+          "ontologySkills": null,
+          "additionalSkills": [
+            {
+              "groupId": null,
+              "id": "1031626728819720100",
+              "freeText": null,
+              "prefLabel": "Data Entry",
+              "relevance": "MANDATORY"
+            }
           ]
         },
-        "buyer": {
-          "location": {
-            "country": "India"
-          },
-          "stats": {
-            "totalCharges": {"amount": 500},
-            "totalAssignments": 2,
-            "score": 3.5
-          }
+        "category": {
+          "name": "Administrative Support",
+          "urlSlug": "administrative-support"
         },
-        "buyerExtra": {
-          "isPaymentMethodVerified": false
-        }
+        "categoryGroup": {
+          "name": "Admin Support",
+          "urlSlug": "admin-support"
+        },
+        "budget": {
+          "amount": 100,
+          "currencyCode": "USD"
+        },
+        "annotations": {
+          "tags": ["searchable"]
+        },
+        "engagementDuration": {
+          "label": "Less than 1 month",
+          "weeks": 2
+        },
+        "extendedBudgetInfo": {}
+      }
+    }
+  },
+  {
+    "id": 3,
+    "type": "detail",
+    "type_description": "return public detail job info",
+    "title": "Social Media Campaign Manager for Apartment Launch",
+    "link": "https://www.upwork.com/jobs/~04featured999abc",
+    "data": {
+      "opening": {
+        "status": "ACTIVE",
+        "postedOn": "2025-05-10T10:00:00Z",
+        "publishTime": "2025-05-10T10:00:30Z",
+        "sourcingTime": "2025-05-10T10:01:00Z",
+        "startDate": null,
+        "deliveryDate": null,
+        "workload": "Hours to be determined",
+        "contractorTier": "INTERMEDIATE",
+        "description": "We are seeking a talented social media manager to oversee a campaign for the launch of our newly renovated apartments.",
+        "info": {
+          "ciphertext": "~04featured999abc",
+          "id": "04featured999abc",
+          "type": "HOURLY",
+          "access": "PUBLIC_INDEX",
+          "title": "Social Media Campaign Manager for Apartment Launch",
+          "hideBudget": true,
+          "createdOn": "2025-05-10T10:00:00Z",
+          "notSureProjectDuration": false,
+          "notSureFreelancersToHire": false,
+          "notSureExperienceLevel": false,
+          "notSureLocationPreference": false,
+          "premium": true
+        },
+        "segmentationData": [
+          {
+            "customValue": null,
+            "label": "Ongoing project",
+            "name": "Employment",
+            "sortOrder": 1,
+            "type": "EMPLOYMENT",
+            "value": "EMPLOYMENT_POSITION",
+            "skill": null
+          }
+        ],
+        "sandsData": {
+          "occupation": {
+            "freeText": null,
+            "ontologyId": "upworkOccupation:campaignmanagement",
+            "prefLabel": "Campaign Management",
+            "id": "1110580749709856768",
+            "uid": "1110580749709856768"
+          },
+          "ontologySkills": [
+            {
+              "groupId": "1204836447612420096",
+              "id": "1031626741817786368",
+              "freeText": null,
+              "prefLabel": "Google Ads",
+              "groupPrefLabel": "Campaign Management Tools",
+              "relevance": "MANDATORY"
+            }
+          ],
+          "additionalSkills": [
+            {
+              "groupId": null,
+              "id": "1052162208978227208",
+              "freeText": null,
+              "prefLabel": "Facebook",
+              "relevance": "MANDATORY"
+            },
+            {
+              "groupId": null,
+              "id": "1031626781101637632",
+              "freeText": null,
+              "prefLabel": "Social Media Management",
+              "relevance": "MANDATORY"
+            }
+          ]
+        },
+        "category": {
+          "name": "Digital Marketing",
+          "urlSlug": "digital-marketing"
+        },
+        "categoryGroup": {
+          "name": "Sales & Marketing",
+          "urlSlug": "sales-marketing"
+        },
+        "budget": {
+          "amount": 0,
+          "currencyCode": "USD"
+        },
+        "annotations": {
+          "tags": ["searchable"]
+        },
+        "engagementDuration": {
+          "label": "3 to 6 months",
+          "weeks": 16
+        },
+        "extendedBudgetInfo": {}
       }
     }
   }
