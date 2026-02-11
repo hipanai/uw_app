@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, type SubmissionStatus, type ActiveSubmissionsResponse, type SubmissionModeResponse } from '@/api/jobs';
+import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, type SubmissionStatus, type ActiveSubmissionsResponse, type SubmissionModeResponse } from '@/api/jobs';
 import type { VideoGenerationStatus, ActiveVideoGenerationsResponse } from '@/api/types';
 import type { Job, JobStatsResponse, JobStatus } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
@@ -64,6 +64,7 @@ export function Dashboard() {
   const [submissionMode, setSubmissionMode] = useState<SubmissionModeResponse | null>(null);
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const videoLogEndRef = useRef<HTMLDivElement>(null);
 
@@ -195,7 +196,7 @@ export function Dashboard() {
 
   const statuses: JobStatus[] = [
     'new', 'scoring', 'extracting', 'generating',
-    'pending_approval', 'approved', 'rejected', 'submitting', 'submitted', 'submission_failed', 'filtered_out'
+    'pending_approval', 'approved', 'rejected', 'shortlisted', 'submitting', 'submitted', 'submission_failed', 'filtered_out'
   ];
 
   const handleSelectJob = (jobId: string) => {
@@ -376,6 +377,43 @@ export function Dashboard() {
       alert('Failed to start video generation.');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // Statuses the user can manually set
+  const manualStatuses: JobStatus[] = [
+    'new', 'pending_approval', 'approved', 'rejected', 'shortlisted', 'filtered_out',
+  ];
+
+  // Handle single job status change
+  const handleStatusChange = async (jobId: string, newStatus: JobStatus) => {
+    setUpdatingStatus(true);
+    try {
+      await updateJobStatus(jobId, newStatus);
+      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, status: newStatus } : j));
+    } catch (err) {
+      console.error('Failed to update status:', err);
+      alert('Failed to update job status');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  // Handle bulk status change
+  const handleBulkStatusChange = async (newStatus: JobStatus) => {
+    if (selectedJobs.size === 0) return;
+
+    setUpdatingStatus(true);
+    try {
+      const jobIds = Array.from(selectedJobs);
+      await updateJobStatusBulk(jobIds, newStatus);
+      setJobs(jobs.map(j => selectedJobs.has(j.job_id || '') ? { ...j, status: newStatus } : j));
+      setSelectedJobs(new Set());
+    } catch (err) {
+      console.error('Failed to bulk update status:', err);
+      alert('Failed to update job statuses');
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -740,6 +778,22 @@ export function Dashboard() {
         </label>
         {selectedJobs.size > 0 && (
           <>
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkStatusChange(e.target.value as JobStatus);
+                  e.target.value = '';
+                }
+              }}
+              disabled={updatingStatus}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md text-sm"
+              defaultValue=""
+            >
+              <option value="" disabled>Set Status ({selectedJobs.size})</option>
+              {manualStatuses.map((s) => (
+                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+              ))}
+            </select>
             {hasUnscoredSelected && (
               <button
                 onClick={handleProcessSelected}
@@ -866,9 +920,23 @@ export function Dashboard() {
                         </a>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-1 text-xs rounded-full ${STATUS_COLORS[job.status] || 'bg-gray-100 text-gray-800'}`}>
-                          {STATUS_LABELS[job.status] || job.status || 'Unknown'}
-                        </span>
+                        <select
+                          value={job.status}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            if (job.job_id) handleStatusChange(job.job_id, e.target.value as JobStatus);
+                          }}
+                          disabled={updatingStatus}
+                          className={`px-2 py-1 text-xs rounded-full border-0 cursor-pointer ${STATUS_COLORS[job.status] || 'bg-gray-100 text-gray-800'}`}
+                        >
+                          {/* Current status always shown */}
+                          {!manualStatuses.includes(job.status) && (
+                            <option value={job.status}>{STATUS_LABELS[job.status] || job.status}</option>
+                          )}
+                          {manualStatuses.map((s) => (
+                            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-3">
                         {/* Score with expand button */}

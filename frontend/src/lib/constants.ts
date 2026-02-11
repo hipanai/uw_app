@@ -13,6 +13,7 @@ export const STATUS_COLORS: Record<JobStatus, string> = {
   submitted: 'bg-emerald-100 text-emerald-800',
   submission_failed: 'bg-red-200 text-red-900',
   filtered_out: 'bg-gray-100 text-gray-800',
+  shortlisted: 'bg-amber-100 text-amber-800',
   error: 'bg-red-200 text-red-900',
 };
 
@@ -28,6 +29,7 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
   submitted: 'Submitted',
   submission_failed: 'Failed',
   filtered_out: 'Filtered',
+  shortlisted: 'Shortlisted',
   error: 'Error',
 };
 
