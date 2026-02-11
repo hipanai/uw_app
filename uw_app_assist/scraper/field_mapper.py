@@ -32,18 +32,34 @@ def _format_budget(job: dict) -> str:
         h_max = hourly_max or h_min
         return f"${h_min}-${h_max}/hr"
 
-    # Fixed budget
+    # Fixed budget (skip if amount is 0 — means "not specified" for hourly jobs)
     budget_amount = _deep_get(opening, "budget", "amount")
-    if budget_amount is not None:
+    if budget_amount is not None and budget_amount > 0:
         return f"${budget_amount} fixed"
 
     return "Not specified"
 
 
-def _map_experience_level(tier: int | None) -> str:
-    """Map contractorTier integer to human-readable level."""
-    mapping = {1: "Entry Level", 2: "Intermediate", 3: "Expert"}
-    return mapping.get(tier, "")
+def _map_experience_level(tier) -> str:
+    """Map contractorTier to human-readable level.
+
+    flash_mage returns strings like "EXPERT", "INTERMEDIATE", "ENTRY_LEVEL"
+    (the original plan assumed integers, but real output uses strings).
+    """
+    if tier is None:
+        return ""
+    # Handle integer mapping (from test fixtures / plan spec)
+    if isinstance(tier, int):
+        return {1: "Entry Level", 2: "Intermediate", 3: "Expert"}.get(tier, "")
+    # Handle string mapping (actual flash_mage output)
+    tier_upper = str(tier).upper()
+    if "EXPERT" in tier_upper:
+        return "Expert"
+    if "INTERMEDIATE" in tier_upper:
+        return "Intermediate"
+    if "ENTRY" in tier_upper:
+        return "Entry Level"
+    return str(tier)
 
 
 def format_job(job: dict) -> dict:
@@ -63,10 +79,15 @@ def format_job(job: dict) -> dict:
     buyer_extra = _deep_get(job, "data", "opening", "buyerExtra") or {}
     ext_budget = opening.get("extendedBudgetInfo") or {}
 
-    # Skills from ontologySkills
+    # Skills — prefer ontologySkills, fall back to additionalSkills
     sands = opening.get("sandsData") or {}
     skills_raw = sands.get("ontologySkills") or []
-    skills = [s.get("prettyName", "") for s in skills_raw if s.get("prettyName")]
+    skills = [s.get("prettyName") or s.get("prefLabel", "") for s in skills_raw
+              if s.get("prettyName") or s.get("prefLabel")]
+    if not skills:
+        # flash_mage often puts skills in additionalSkills instead
+        additional = sands.get("additionalSkills") or []
+        skills = [s.get("prefLabel", "") for s in additional if s.get("prefLabel")]
 
     # Budget type
     job_type = (info.get("type") or "").upper()
@@ -85,7 +106,7 @@ def format_job(job: dict) -> dict:
         budget_max = ext_budget.get("hourlyBudgetMax")
     elif budget_type == "fixed":
         amount = _deep_get(opening, "budget", "amount")
-        if amount is not None:
+        if amount is not None and amount > 0:
             budget_min = amount
             budget_max = amount
 
@@ -105,7 +126,7 @@ def format_job(job: dict) -> dict:
         "budget_type": budget_type,
         "budget_min": budget_min,
         "budget_max": budget_max,
-        "category": "",
+        "category": _deep_get(opening, "category", "name") or "",
         "experience_level": _map_experience_level(opening.get("contractorTier")),
         "skills": skills,
         "posted": opening.get("postedOn", ""),
@@ -119,6 +140,6 @@ def format_job(job: dict) -> dict:
             "hire_rate": 0,
             "feedback_score": buyer_stats.get("score") or 0,
         },
-        "is_featured": False,
+        "is_featured": info.get("premium", False),
         "source": "apify",
     }
