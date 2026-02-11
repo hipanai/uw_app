@@ -558,25 +558,39 @@ def add_jobs_to_sheet(jobs: List[Dict]) -> int:
             if not job_id or job_id in existing_ids:
                 continue
 
-            # Parse budget
-            budget_raw = job.get('budget_raw', {})
-            hourly = budget_raw.get('hourlyRate', {})
-            fixed = budget_raw.get('fixedBudget')
-
-            if fixed:
-                budget_type = 'fixed'
-                budget_min = fixed
-                budget_max = fixed
-            elif hourly.get('min') or hourly.get('max'):
-                budget_type = 'hourly'
-                budget_min = hourly.get('min')
-                budget_max = hourly.get('max')
+            # Parse budget — check for flat keys first (URL import), then Apify format
+            if job.get('budget_type') and job['budget_type'] != 'unknown':
+                budget_type = job['budget_type']
+                budget_min = job.get('budget_min')
+                budget_max = job.get('budget_max')
             else:
-                budget_type = 'unknown'
-                budget_min = None
-                budget_max = None
+                budget_raw = job.get('budget_raw', {})
+                hourly = budget_raw.get('hourlyRate', {})
+                fixed = budget_raw.get('fixedBudget')
 
-            client_data = job.get('client', {})
+                if fixed:
+                    budget_type = 'fixed'
+                    budget_min = fixed
+                    budget_max = fixed
+                elif hourly.get('min') or hourly.get('max'):
+                    budget_type = 'hourly'
+                    budget_min = hourly.get('min')
+                    budget_max = hourly.get('max')
+                else:
+                    budget_type = 'unknown'
+                    budget_min = None
+                    budget_max = None
+
+            # Client data — check for flat keys first (URL import), then Apify format
+            if job.get('client_country') or job.get('client_spent') is not None:
+                client_data = {
+                    'country': job.get('client_country', ''),
+                    'total_spent': job.get('client_spent', ''),
+                    'total_hires': job.get('client_hires', ''),
+                    'payment_verified': job.get('payment_verified', False),
+                }
+            else:
+                client_data = job.get('client', {})
 
             # Map job data to sheet columns
             row_data = {
@@ -2058,97 +2072,33 @@ def _execute_pipeline(request: PipelineTriggerRequest, run_id: str):
                 PIPELINE_STATUS["is_running"] = False
                 return
 
-            # Use deep extractor to scrape actual job details
-            logger.info(f"Scraping job details from {len(valid_urls)} URLs using Playwright...")
+            # Import jobs from URLs — Upwork blocks all automated scraping
+            # (Cloudflare 403 on HTTP, cloudscraper, Playwright, and Apify cloud browsers)
+            # so we import with URL/ID and let the full pipeline's deep extractor handle details.
+            logger.info(f"Importing {len(valid_urls)} job URLs...")
             jobs = []
 
-            try:
-                import asyncio
-                import importlib.util
+            for url in valid_urls:
+                job_id = None
+                if "/jobs/~" in url:
+                    job_id = url.split("/jobs/~")[-1].split("?")[0].split("/")[0]
+                elif "~" in url:
+                    m = re.search(r'~(\d+)', url)
+                    job_id = m.group(1) if m else None
 
-                # Use importlib for reliable import regardless of sys.path
-                exec_dir = Path(__file__).parent
-                extractor_path = exec_dir / "upwork_deep_extractor.py"
-
-                if extractor_path.exists():
-                    spec = importlib.util.spec_from_file_location("upwork_deep_extractor", extractor_path)
-                    upwork_deep_extractor = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(upwork_deep_extractor)
-                    UpworkDeepExtractor = upwork_deep_extractor.UpworkDeepExtractor
-                    extract_job_id_from_url = upwork_deep_extractor.extract_job_id_from_url
-                    logger.info(f"Deep extractor loaded from {extractor_path}")
-                else:
-                    raise ImportError(f"Deep extractor not found at {extractor_path}")
-
-                async def scrape_urls():
-                    extracted_jobs = []
-                    async with UpworkDeepExtractor(headless=True) as extractor:
-                        for url in valid_urls:
-                            logger.info(f"Extracting job from: {url}")
-                            try:
-                                extracted = await extractor.extract_job(url)
-                                if extracted.error:
-                                    logger.warning(f"Error extracting {url}: {extracted.error}")
-                                extracted_jobs.append(extracted)
-                            except Exception as e:
-                                logger.error(f"Failed to extract {url}: {e}")
-                    return extracted_jobs
-
-                # Run async extraction
-                extracted_jobs = asyncio.run(scrape_urls())
-
-                for extracted in extracted_jobs:
-                    job = {
-                        "job_id": extracted.job_id,
-                        "url": extracted.url,
-                        "title": extracted.title or f"Job {extracted.job_id[:10]}...",
-                        "description": extracted.description or "No description available",
+                if job_id:
+                    canonical_url = f"https://www.upwork.com/jobs/~{job_id}"
+                    jobs.append({
+                        "job_id": job_id,
+                        "url": canonical_url,
+                        "title": f"Upwork Job ~{job_id[:8]}... (run full pipeline to extract details)",
+                        "description": "Job imported from URL. Use 'Run Full Pipeline' or select and 'Process' to extract title, description, budget, and other details.",
                         "source": "url_import",
                         "status": "new",
-                    }
-                    # Add budget info if available
-                    if extracted.budget:
-                        job["budget_type"] = extracted.budget.budget_type
-                        job["budget_min"] = extracted.budget.budget_min
-                        job["budget_max"] = extracted.budget.budget_max
-                    # Add client info if available
-                    if extracted.client:
-                        job["client_country"] = extracted.client.country
-                        job["client_spent"] = extracted.client.total_spent
-                        job["payment_verified"] = extracted.client.payment_verified
-                    # Add skills
-                    if extracted.skills:
-                        job["skills"] = extracted.skills
-
-                    jobs.append(job)
-                    logger.info(f"Scraped job: {extracted.title or extracted.job_id}")
-
-            except ImportError as e:
-                logger.error(f"Deep extractor not available: {e}")
-                # Fallback to placeholder data
-                for url in valid_urls:
-                    job_id = None
-                    if "/jobs/~" in url:
-                        job_id = url.split("/jobs/~")[-1].split("?")[0].split("/")[0]
-                    elif "~" in url:
-                        match = re.search(r'~(\d+)', url)
-                        if match:
-                            job_id = match.group(1)
-
-                    if job_id:
-                        jobs.append({
-                            "job_id": job_id,
-                            "url": f"https://www.upwork.com/jobs/~{job_id}",
-                            "title": f"Job {job_id[:10]}... (pending extraction)",
-                            "description": "Job imported from URL - deep extractor unavailable",
-                            "source": "url_import",
-                            "status": "new",
-                        })
-            except Exception as e:
-                logger.error(f"Error during job extraction: {e}")
-                PIPELINE_STATUS["last_run_status"] = "error"
-                PIPELINE_STATUS["is_running"] = False
-                return
+                    })
+                    logger.info(f"Imported job URL: {canonical_url}")
+                else:
+                    logger.warning(f"Could not extract job ID from URL: {url}")
 
             if not jobs:
                 logger.error("No valid job URLs found")
