@@ -11,6 +11,7 @@ export type JobStatus =
   | 'submitted'
   | 'submission_failed'
   | 'filtered_out'
+  | 'shortlisted'
   | 'error';
 
 // Job interface matching Google Sheet columns
@@ -148,4 +149,33 @@ export interface VideoGenerationStatus {
 export interface ActiveVideoGenerationsResponse {
   video_generations: VideoGenerationStatus[];
   count: number;
+}
+
+// Schedule types
+export interface SchedulePipelineDefaults {
+  source: string;
+  limit: number;
+  keywords: string | null;
+  location: string | null;
+  run_full_pipeline: boolean;
+  min_score: number;
+  min_hourly: number | null;
+  max_hourly: number | null;
+  min_fixed: number | null;
+  max_fixed: number | null;
+}
+
+export interface ScheduleConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule_type: 'interval' | 'cron';
+  interval_hours: number;
+  cron_days: string[];
+  cron_hour: number;
+  cron_minute: number;
+  submission_mode: string | null;
+  pipeline_defaults: SchedulePipelineDefaults;
+  last_triggered_at: string | null;
+  next_run_at: string | null;
 }

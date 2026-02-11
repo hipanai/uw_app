@@ -9,9 +9,14 @@ import {
   getSubmissionMode,
   setSubmissionMode,
   autoProcessPendingJobs,
+  getSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  toggleSchedule,
   type SubmissionModeResponse,
 } from '@/api/jobs';
-import type { HealthResponse, PipelineStatusResponse, LogEntry, ConfigItem } from '@/api/types';
+import type { HealthResponse, PipelineStatusResponse, LogEntry, ConfigItem, ScheduleConfig } from '@/api/types';
 import { LOG_LEVEL_COLORS } from '@/lib/constants';
 import { formatDate } from '@/lib/utils';
 
@@ -44,21 +49,30 @@ export function Admin() {
   const [submissionMode, setSubmissionModeState] = useState<SubmissionModeResponse | null>(null);
   const [modeChanging, setModeChanging] = useState(false);
   const [autoProcessing, setAutoProcessing] = useState(false);
+  const [schedules, setSchedules] = useState<ScheduleConfig[]>([]);
+  const [scheduleSaving, setScheduleSaving] = useState<Record<string, boolean>>({});
+  const [scheduleEdits, setScheduleEdits] = useState<Record<string, Partial<ScheduleConfig>>>({});
+  const [expandedSchedules, setExpandedSchedules] = useState<Record<string, boolean>>({});
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [healthRes, statusRes, configRes, logsRes, modeRes] = await Promise.all([
+      const [healthRes, statusRes, configRes, logsRes, modeRes, schedulesRes] = await Promise.all([
         getHealth(),
         getPipelineStatus(),
         getConfig(),
         getLogs(logLevel || undefined, 100),
         getSubmissionMode(),
+        getSchedules().catch(() => [] as ScheduleConfig[]),
       ]);
       setHealth(healthRes);
       setPipelineStatus(statusRes);
       setConfigItems(configRes.config);
       setSubmissionModeState(modeRes);
+      setSchedules(schedulesRes);
+      const edits: Record<string, Partial<ScheduleConfig>> = {};
+      schedulesRes.forEach((s: ScheduleConfig) => { edits[s.id] = { ...s }; });
+      setScheduleEdits(edits);
       // Initialize edited config with current values
       const initialEdited: Record<string, string> = {};
       configRes.config.forEach((item: ConfigItem) => {
@@ -201,6 +215,75 @@ export function Admin() {
     }
   };
 
+  const handleScheduleSave = async (id: string) => {
+    setScheduleSaving(prev => ({ ...prev, [id]: true }));
+    setError(null);
+    setSuccess(null);
+    try {
+      const edit = scheduleEdits[id] || {};
+      const result = await updateSchedule(id, edit);
+      setSchedules(prev => prev.map(s => s.id === id ? result : s));
+      setScheduleEdits(prev => ({ ...prev, [id]: { ...result } }));
+      setSuccess('Schedule saved');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save schedule');
+    } finally {
+      setScheduleSaving(prev => ({ ...prev, [id]: false }));
+    }
+  };
+
+  const handleScheduleToggle = async (id: string) => {
+    setError(null);
+    try {
+      const result = await toggleSchedule(id);
+      setSchedules(prev => prev.map(s => s.id === id ? { ...s, enabled: result.enabled, next_run_at: result.next_run_at } : s));
+      setScheduleEdits(prev => ({ ...prev, [id]: { ...prev[id], enabled: result.enabled, next_run_at: result.next_run_at } }));
+      setSuccess(result.enabled ? 'Schedule enabled' : 'Schedule disabled');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle schedule');
+    }
+  };
+
+  const handleScheduleAdd = async () => {
+    setError(null);
+    try {
+      const result = await createSchedule({ name: 'New Schedule' });
+      setSchedules(prev => [...prev, result]);
+      setScheduleEdits(prev => ({ ...prev, [result.id]: { ...result } }));
+      setExpandedSchedules(prev => ({ ...prev, [result.id]: true }));
+      setSuccess('Schedule created');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create schedule');
+    }
+  };
+
+  const handleScheduleDelete = async (id: string) => {
+    setError(null);
+    try {
+      await deleteSchedule(id);
+      setSchedules(prev => prev.filter(s => s.id !== id));
+      setScheduleEdits(prev => { const n = { ...prev }; delete n[id]; return n; });
+      setExpandedSchedules(prev => { const n = { ...prev }; delete n[id]; return n; });
+      setSuccess('Schedule deleted');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete schedule');
+    }
+  };
+
+  const updateScheduleEdit = (id: string, updater: (prev: Partial<ScheduleConfig>) => Partial<ScheduleConfig>) => {
+    setScheduleEdits(prev => ({ ...prev, [id]: updater(prev[id] || {}) }));
+  };
+
+  const DAYS = [
+    { key: 'mon', label: 'Mon' },
+    { key: 'tue', label: 'Tue' },
+    { key: 'wed', label: 'Wed' },
+    { key: 'thu', label: 'Thu' },
+    { key: 'fri', label: 'Fri' },
+    { key: 'sat', label: 'Sat' },
+    { key: 'sun', label: 'Sun' },
+  ];
+
   const getHealthColor = (status: string) => {
     switch (status) {
       case 'healthy':
@@ -334,6 +417,351 @@ export function Admin() {
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Schedules */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold dark:text-white">Scheduled Runs</h2>
+                <p className="text-sm text-gray-500">Automatically trigger the pipeline on a timer</p>
+              </div>
+              <button
+                onClick={handleScheduleAdd}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium text-sm"
+              >
+                + Add Schedule
+              </button>
+            </div>
+
+            {schedules.length === 0 && (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-lg shadow">
+                No schedules configured. Click "Add Schedule" to create one.
+              </div>
+            )}
+
+            {schedules.map((sched) => {
+              const edit = scheduleEdits[sched.id] || {};
+              const isExpanded = expandedSchedules[sched.id] ?? false;
+              const isSaving = scheduleSaving[sched.id] ?? false;
+
+              return (
+                <div
+                  key={sched.id}
+                  className={`rounded-lg shadow border-2 ${sched.enabled ? 'border-green-400' : 'border-gray-300 dark:border-gray-600'}`}
+                >
+                  {/* Card header — always visible */}
+                  <div
+                    className="flex items-center justify-between p-4 cursor-pointer"
+                    onClick={() => setExpandedSchedules(prev => ({ ...prev, [sched.id]: !prev[sched.id] }))}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${sched.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
+                      <div className="min-w-0">
+                        <div className="font-medium dark:text-white truncate">{sched.name || 'Unnamed Schedule'}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {sched.schedule_type === 'interval'
+                            ? `Every ${sched.interval_hours}h`
+                            : `${(sched.cron_days || []).join(', ')} at ${String(sched.cron_hour).padStart(2, '0')}:${String(sched.cron_minute).padStart(2, '0')}`}
+                          {sched.pipeline_defaults?.keywords ? ` | ${sched.pipeline_defaults.keywords}` : ''}
+                          {' | Next: '}{sched.next_run_at ? formatDate(sched.next_run_at) : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleScheduleToggle(sched.id)}
+                        className={`px-3 py-1 rounded-lg font-medium text-xs ${
+                          sched.enabled
+                            ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {sched.enabled ? 'On' : 'Off'}
+                      </button>
+                      <button
+                        onClick={() => { if (confirm('Delete this schedule?')) handleScheduleDelete(sched.id); }}
+                        className="px-2 py-1 text-red-500 hover:bg-red-50 rounded text-xs"
+                        title="Delete schedule"
+                      >
+                        Delete
+                      </button>
+                      <span className="text-gray-400 text-sm">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                    </div>
+                  </div>
+
+                  {/* Expanded body */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-600 pt-4 space-y-4">
+                      {/* Name */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                        <input
+                          type="text"
+                          value={edit.name || ''}
+                          onChange={(e) => updateScheduleEdit(sched.id, prev => ({ ...prev, name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                        />
+                      </div>
+
+                      {/* Timestamps */}
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">Next run: </span>
+                          <span className="font-medium">{sched.next_run_at ? formatDate(sched.next_run_at) : 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">Last run: </span>
+                          <span className="font-medium">{sched.last_triggered_at ? formatDate(sched.last_triggered_at) : 'Never'}</span>
+                        </div>
+                      </div>
+
+                      {/* Schedule type */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Schedule Type</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`schedule_type_${sched.id}`}
+                              checked={edit.schedule_type === 'interval'}
+                              onChange={() => updateScheduleEdit(sched.id, prev => ({ ...prev, schedule_type: 'interval' }))}
+                              className="text-blue-600"
+                            />
+                            <span className="text-sm">Every N hours</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`schedule_type_${sched.id}`}
+                              checked={edit.schedule_type === 'cron'}
+                              onChange={() => updateScheduleEdit(sched.id, prev => ({ ...prev, schedule_type: 'cron' }))}
+                              className="text-blue-600"
+                            />
+                            <span className="text-sm">Specific days & time</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Interval config */}
+                      {edit.schedule_type === 'interval' && (
+                        <div>
+                          <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">Run every (hours)</label>
+                          <input
+                            type="number"
+                            value={edit.interval_hours ?? 6}
+                            onChange={(e) => updateScheduleEdit(sched.id, prev => ({ ...prev, interval_hours: Math.max(1, parseInt(e.target.value) || 1) }))}
+                            min={1}
+                            max={168}
+                            className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                          />
+                        </div>
+                      )}
+
+                      {/* Cron config */}
+                      {edit.schedule_type === 'cron' && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm text-gray-500 dark:text-gray-400 mb-2">Days</label>
+                            <div className="flex gap-2 flex-wrap">
+                              {DAYS.map(d => {
+                                const selected = (edit.cron_days || []).includes(d.key);
+                                return (
+                                  <button
+                                    key={d.key}
+                                    type="button"
+                                    onClick={() => {
+                                      const current = edit.cron_days || [];
+                                      const next = selected ? current.filter(x => x !== d.key) : [...current, d.key];
+                                      updateScheduleEdit(sched.id, prev => ({ ...prev, cron_days: next }));
+                                    }}
+                                    className={`px-3 py-1 rounded-full text-sm font-medium border ${
+                                      selected
+                                        ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                        : 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600'
+                                    }`}
+                                  >
+                                    {d.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex gap-4 items-center">
+                            <label className="text-sm text-gray-500 dark:text-gray-400">Time:</label>
+                            <input
+                              type="time"
+                              value={`${String(edit.cron_hour ?? 9).padStart(2, '0')}:${String(edit.cron_minute ?? 0).padStart(2, '0')}`}
+                              onChange={(e) => {
+                                const [h, m] = e.target.value.split(':').map(Number);
+                                updateScheduleEdit(sched.id, prev => ({ ...prev, cron_hour: h, cron_minute: m }));
+                              }}
+                              className="px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Submission mode override */}
+                      <div>
+                        <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">Submission mode for scheduled runs</label>
+                        <select
+                          value={edit.submission_mode || ''}
+                          onChange={(e) => updateScheduleEdit(sched.id, prev => ({ ...prev, submission_mode: e.target.value || null }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                        >
+                          <option value="">Use current mode</option>
+                          <option value="manual">Manual</option>
+                          <option value="semi_auto">Semi-Auto</option>
+                          <option value="automatic">Automatic</option>
+                        </select>
+                      </div>
+
+                      {/* Pipeline defaults */}
+                      <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
+                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Pipeline Defaults</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Limit</label>
+                            <input
+                              type="number"
+                              value={edit.pipeline_defaults?.limit ?? 10}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, limit: parseInt(e.target.value) || 10 }
+                              }))}
+                              min={1}
+                              max={100}
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Keywords</label>
+                            <input
+                              type="text"
+                              value={edit.pipeline_defaults?.keywords || ''}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, keywords: e.target.value || null }
+                              }))}
+                              placeholder="e.g., python, react"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Location</label>
+                            <input
+                              type="text"
+                              value={edit.pipeline_defaults?.location || ''}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, location: e.target.value || null }
+                              }))}
+                              placeholder="e.g., United States"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Min Score</label>
+                            <input
+                              type="number"
+                              value={edit.pipeline_defaults?.min_score ?? 70}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, min_score: parseInt(e.target.value) || 70 }
+                              }))}
+                              min={0}
+                              max={100}
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Min Hourly ($)</label>
+                            <input
+                              type="number"
+                              value={edit.pipeline_defaults?.min_hourly ?? ''}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, min_hourly: e.target.value ? parseInt(e.target.value) : null }
+                              }))}
+                              placeholder="0"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Max Hourly ($)</label>
+                            <input
+                              type="number"
+                              value={edit.pipeline_defaults?.max_hourly ?? ''}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, max_hourly: e.target.value ? parseInt(e.target.value) : null }
+                              }))}
+                              placeholder="1500"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Min Fixed ($)</label>
+                            <input
+                              type="number"
+                              value={edit.pipeline_defaults?.min_fixed ?? ''}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, min_fixed: e.target.value ? parseInt(e.target.value) : null }
+                              }))}
+                              placeholder="50"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Max Fixed ($)</label>
+                            <input
+                              type="number"
+                              value={edit.pipeline_defaults?.max_fixed ?? ''}
+                              onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                                ...prev,
+                                pipeline_defaults: { ...prev.pipeline_defaults!, max_fixed: e.target.value ? parseInt(e.target.value) : null }
+                              }))}
+                              placeholder="100000"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Full pipeline toggle */}
+                        <div className="flex items-center gap-3 mt-3">
+                          <input
+                            type="checkbox"
+                            id={`schedRunFullPipeline_${sched.id}`}
+                            checked={edit.pipeline_defaults?.run_full_pipeline ?? false}
+                            onChange={(e) => updateScheduleEdit(sched.id, prev => ({
+                              ...prev,
+                              pipeline_defaults: { ...prev.pipeline_defaults!, run_full_pipeline: e.target.checked }
+                            }))}
+                            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                          />
+                          <label htmlFor={`schedRunFullPipeline_${sched.id}`} className="text-sm text-gray-700 dark:text-gray-200">
+                            Run Full Pipeline (score, extract, generate, approve)
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Save button */}
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleScheduleSave(sched.id)}
+                          disabled={isSaving}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 font-medium text-sm"
+                        >
+                          {isSaving ? 'Saving...' : 'Save Schedule'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Health Status */}

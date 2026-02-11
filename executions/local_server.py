@@ -35,11 +35,13 @@ import subprocess
 import sys
 import secrets
 import re
+import uuid
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +49,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 # Load environment variables
 load_dotenv()
@@ -75,7 +80,19 @@ class LogHandler(logging.Handler):
 # Add custom handler to root logger
 logging.getLogger().addHandler(LogHandler())
 
-app = FastAPI(title="Claude Orchestrator (Local)", version="1.0")
+@asynccontextmanager
+async def lifespan(app):
+    # Startup
+    logger.info("Applying saved schedules on startup...")
+    try:
+        apply_all_schedules()
+    except Exception as e:
+        logger.warning(f"Failed to apply schedules on startup: {e}")
+    yield
+    # Shutdown
+    scheduler.shutdown(wait=False)
+
+app = FastAPI(title="Claude Orchestrator (Local)", version="1.0", lifespan=lifespan)
 
 # CORS middleware for frontend development
 app.add_middleware(
@@ -626,6 +643,215 @@ PIPELINE_STATUS = {
     "last_reset_date": datetime.now(timezone.utc).date().isoformat()
 }
 
+# ============================================================================
+# SCHEDULE CONFIG & SCHEDULER
+# ============================================================================
+
+SCHEDULE_CONFIG_PATH = Path(__file__).parent.parent / "config" / "schedule.json"
+
+SCHEDULE_DEFAULTS = {
+    "enabled": False,
+    "name": "Default Schedule",
+    "schedule_type": "interval",  # "interval" or "cron"
+    "interval_hours": 6,
+    "cron_days": ["mon", "tue", "wed", "thu", "fri"],
+    "cron_hour": 9,
+    "cron_minute": 0,
+    "submission_mode": None,  # None = use current mode, or override
+    "pipeline_defaults": {
+        "source": "apify",
+        "limit": 10,
+        "keywords": None,
+        "location": None,
+        "run_full_pipeline": False,
+        "min_score": 70,
+        "min_hourly": None,
+        "max_hourly": None,
+        "min_fixed": None,
+        "max_fixed": None,
+    },
+    "last_triggered_at": None,
+    "next_run_at": None,
+}
+
+def _make_schedule(overrides: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Create a new schedule dict with defaults, optionally merged with overrides."""
+    s = dict(SCHEDULE_DEFAULTS)
+    s["pipeline_defaults"] = dict(SCHEDULE_DEFAULTS["pipeline_defaults"])
+    s["id"] = str(uuid.uuid4())
+    if overrides:
+        for k, v in overrides.items():
+            if k == "pipeline_defaults" and isinstance(v, dict):
+                s["pipeline_defaults"].update(v)
+            else:
+                s[k] = v
+    return s
+
+def load_schedules() -> List[Dict[str, Any]]:
+    """Load schedules array from JSON. Migrates old single-config format if found."""
+    if not SCHEDULE_CONFIG_PATH.exists():
+        return []
+    try:
+        with open(SCHEDULE_CONFIG_PATH) as f:
+            saved = json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load schedule config: {e}")
+        return []
+
+    # Migrate: if saved is a dict (old single-schedule format), wrap in array
+    if isinstance(saved, dict):
+        logger.info("Migrating single schedule config to multi-schedule array")
+        if "id" not in saved:
+            saved["id"] = str(uuid.uuid4())
+        if "name" not in saved:
+            saved["name"] = "Default Schedule"
+        # Merge with defaults for any missing keys
+        migrated = _make_schedule(saved)
+        migrated["id"] = saved["id"]  # preserve the id we just set
+        schedules = [migrated]
+        save_schedules(schedules)
+        return schedules
+
+    # Already an array
+    result = []
+    for item in saved:
+        s = _make_schedule(item)
+        if "id" in item:
+            s["id"] = item["id"]
+        result.append(s)
+    return result
+
+def save_schedules(schedules: List[Dict[str, Any]]):
+    """Save schedules array to JSON."""
+    SCHEDULE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(SCHEDULE_CONFIG_PATH, "w") as f:
+        json.dump(schedules, f, indent=2)
+
+def _get_schedule_by_id(schedules: List[Dict], sid: str) -> Optional[Dict]:
+    for s in schedules:
+        if s.get("id") == sid:
+            return s
+    return None
+
+# Initialize scheduler
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+def _job_id_for_schedule(sid: str) -> str:
+    return f"scheduled_pipeline_{sid}"
+
+def apply_all_schedules():
+    """Remove all scheduled_pipeline_* jobs and re-add from current config."""
+    # Remove all existing schedule jobs
+    for job in scheduler.get_jobs():
+        if job.id.startswith("scheduled_pipeline_"):
+            scheduler.remove_job(job.id)
+
+    schedules = load_schedules()
+    for s in schedules:
+        _apply_single_schedule(s)
+    save_schedules(schedules)
+
+def _apply_single_schedule(s: Dict[str, Any]):
+    """Add or remove APScheduler job for a single schedule."""
+    job_id = _job_id_for_schedule(s["id"])
+    try:
+        scheduler.remove_job(job_id)
+    except Exception:
+        pass
+
+    if not s.get("enabled"):
+        s["next_run_at"] = None
+        return
+
+    if s["schedule_type"] == "interval":
+        hours = max(1, s.get("interval_hours", 6))
+        trigger = IntervalTrigger(hours=hours)
+        logger.info(f"Schedule '{s.get('name', s['id'])}': every {hours} hour(s)")
+    else:
+        days = s.get("cron_days", ["mon", "tue", "wed", "thu", "fri"])
+        day_of_week = ",".join(days) if days else "mon-fri"
+        hour = s.get("cron_hour", 9)
+        minute = s.get("cron_minute", 0)
+        trigger = CronTrigger(day_of_week=day_of_week, hour=hour, minute=minute)
+        logger.info(f"Schedule '{s.get('name', s['id'])}': cron days={day_of_week} at {hour:02d}:{minute:02d}")
+
+    sid = s["id"]
+    job = scheduler.add_job(
+        scheduled_pipeline_run,
+        trigger=trigger,
+        id=job_id,
+        replace_existing=True,
+        args=[sid],
+    )
+    next_run = job.next_run_time
+    s["next_run_at"] = next_run.isoformat() if next_run else None
+    logger.info(f"Schedule '{s.get('name', s['id'])}' next run: {s['next_run_at']}")
+
+def scheduled_pipeline_run(schedule_id: str):
+    """Called by APScheduler to trigger a pipeline run for a specific schedule."""
+    import threading
+
+    schedules = load_schedules()
+    schedule = _get_schedule_by_id(schedules, schedule_id)
+    if not schedule:
+        logger.warning(f"Scheduled run for unknown schedule id={schedule_id}")
+        return
+
+    if PIPELINE_STATUS["is_running"]:
+        logger.warning(f"Scheduled run skipped for '{schedule.get('name', schedule_id)}' — pipeline already running")
+        return
+
+    logger.info(f"Scheduled pipeline run starting for '{schedule.get('name', schedule_id)}'...")
+
+    # Optionally override submission mode
+    override_mode = schedule.get("submission_mode")
+    original_mode = None
+    if override_mode:
+        original_mode = os.getenv("SUBMISSION_MODE", "manual")
+        os.environ["SUBMISSION_MODE"] = override_mode
+        logger.info(f"Submission mode overridden to '{override_mode}' for scheduled run")
+
+    # Build request from defaults
+    defaults = schedule.get("pipeline_defaults", {})
+    req = PipelineTriggerRequest(
+        source=defaults.get("source", "apify"),
+        limit=defaults.get("limit", 10),
+        keywords=defaults.get("keywords"),
+        location=defaults.get("location"),
+        run_full_pipeline=defaults.get("run_full_pipeline", False),
+        min_score=defaults.get("min_score", 70),
+        min_hourly=defaults.get("min_hourly"),
+        max_hourly=defaults.get("max_hourly"),
+        min_fixed=defaults.get("min_fixed"),
+        max_fixed=defaults.get("max_fixed"),
+    )
+
+    run_id = f"sched_{schedule_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    PIPELINE_STATUS["is_running"] = True
+    PIPELINE_STATUS["current_run_id"] = run_id
+    PIPELINE_STATUS["last_run_time"] = datetime.now(timezone.utc).isoformat()
+    PIPELINE_STATUS["last_run_status"] = "running"
+
+    def run_and_restore():
+        try:
+            _execute_pipeline(req, run_id)
+        finally:
+            # Restore submission mode
+            if original_mode is not None:
+                os.environ["SUBMISSION_MODE"] = original_mode
+            # Update last_triggered_at and next_run_at
+            all_schedules = load_schedules()
+            sched = _get_schedule_by_id(all_schedules, schedule_id)
+            if sched:
+                sched["last_triggered_at"] = datetime.now(timezone.utc).isoformat()
+                job = scheduler.get_job(_job_id_for_schedule(schedule_id))
+                if job and job.next_run_time:
+                    sched["next_run_at"] = job.next_run_time.isoformat()
+                save_schedules(all_schedules)
+
+    threading.Thread(target=run_and_restore, daemon=True).start()
+
 # Track active submissions
 SUBMISSION_QUEUE: Dict[str, Dict] = {}  # job_id -> submission status
 
@@ -863,7 +1089,7 @@ async def api_update_job_status(job_id: str, request: JobStatusUpdateRequest, us
     """Update a job's status. Useful for resetting filtered jobs to allow reprocessing."""
     valid_statuses = ['new', 'scoring', 'extracting', 'generating', 'pending_approval',
                       'approved', 'rejected', 'submitting', 'submitted', 'submission_failed',
-                      'filtered_out', 'error']
+                      'filtered_out', 'shortlisted', 'error']
 
     if request.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
@@ -881,6 +1107,36 @@ async def api_update_job_status(job_id: str, request: JobStatusUpdateRequest, us
 
     logger.info(f"Job {job_id} status updated to {request.status}" + (f" with fit_score={request.fit_score}" if request.fit_score else ""))
     return {"success": True, "job_id": job_id, "status": request.status, "fit_score": request.fit_score}
+
+class BulkStatusUpdateRequest(BaseModel):
+    job_ids: List[str]
+    status: str
+
+@app.patch("/api/jobs/bulk/status")
+async def api_update_jobs_status_bulk(request: BulkStatusUpdateRequest, user: dict = Depends(get_current_user)):
+    """Update status for multiple jobs at once."""
+    valid_statuses = ['new', 'scoring', 'extracting', 'generating', 'pending_approval',
+                      'approved', 'rejected', 'submitting', 'submitted', 'submission_failed',
+                      'filtered_out', 'shortlisted', 'error']
+
+    if request.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+
+    if not request.job_ids:
+        raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    updated_count = 0
+    for job_id in request.job_ids:
+        success = update_job_in_sheet(job_id, {"status": request.status})
+        if success:
+            updated_count += 1
+
+    logger.info(f"Bulk status update: {updated_count}/{len(request.job_ids)} jobs set to {request.status}")
+    return {
+        "success": True,
+        "updated_count": updated_count,
+        "message": f"Updated {updated_count} of {len(request.job_ids)} jobs to {request.status}"
+    }
 
 # ============================================================================
 # APPROVALS ENDPOINTS
@@ -1762,201 +2018,169 @@ async def api_trigger_pipeline(
 
     # Run pipeline in background thread
     import threading
+    threading.Thread(target=_execute_pipeline, args=(request, run_id), daemon=True).start()
 
-    def run_pipeline():
-        output_file = Path(__file__).parent.parent / ".tmp" / "ui_triggered_jobs.json"
-        jobs_added = 0
+    return {
+        "success": True,
+        "run_id": run_id,
+        "source": request.source,
+        "limit": request.limit,
+        "keywords": request.keywords,
+        "location": request.location
+    }
 
-        try:
-            # Handle URL imports specially - need to scrape job details first
-            if request.source == "urls" and request.job_urls:
-                logger.info(f"Processing {len(request.job_urls)} URLs...")
 
-                # Clean and validate URLs
-                valid_urls = []
-                for url in request.job_urls:
-                    url = url.strip()
-                    if not url:
-                        continue
-                    # Normalize URL format
-                    if "/jobs/~" in url or "~" in url:
-                        valid_urls.append(url)
-                    else:
-                        logger.warning(f"Invalid Upwork URL: {url}")
+def _execute_pipeline(request: PipelineTriggerRequest, run_id: str):
+    """Execute the pipeline. Called by both manual trigger and scheduler."""
+    output_file = Path(__file__).parent.parent / ".tmp" / "ui_triggered_jobs.json"
+    jobs_added = 0
 
-                if not valid_urls:
-                    logger.error("No valid job URLs found")
-                    PIPELINE_STATUS["last_run_status"] = "error"
-                    PIPELINE_STATUS["is_running"] = False
-                    return
+    try:
+        # Handle URL imports specially - need to scrape job details first
+        if request.source == "urls" and request.job_urls:
+            logger.info(f"Processing {len(request.job_urls)} URLs...")
 
-                # Use deep extractor to scrape actual job details
-                logger.info(f"Scraping job details from {len(valid_urls)} URLs using Playwright...")
-                jobs = []
+            # Clean and validate URLs
+            valid_urls = []
+            for url in request.job_urls:
+                url = url.strip()
+                if not url:
+                    continue
+                # Normalize URL format
+                if "/jobs/~" in url or "~" in url:
+                    valid_urls.append(url)
+                else:
+                    logger.warning(f"Invalid Upwork URL: {url}")
 
-                try:
-                    import asyncio
-                    import importlib.util
+            if not valid_urls:
+                logger.error("No valid job URLs found")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
 
-                    # Use importlib for reliable import regardless of sys.path
-                    exec_dir = Path(__file__).parent
-                    extractor_path = exec_dir / "upwork_deep_extractor.py"
+            # Use deep extractor to scrape actual job details
+            logger.info(f"Scraping job details from {len(valid_urls)} URLs using Playwright...")
+            jobs = []
 
-                    if extractor_path.exists():
-                        spec = importlib.util.spec_from_file_location("upwork_deep_extractor", extractor_path)
-                        upwork_deep_extractor = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(upwork_deep_extractor)
-                        UpworkDeepExtractor = upwork_deep_extractor.UpworkDeepExtractor
-                        extract_job_id_from_url = upwork_deep_extractor.extract_job_id_from_url
-                        logger.info(f"Deep extractor loaded from {extractor_path}")
-                    else:
-                        raise ImportError(f"Deep extractor not found at {extractor_path}")
+            try:
+                import asyncio
+                import importlib.util
 
-                    async def scrape_urls():
-                        extracted_jobs = []
-                        async with UpworkDeepExtractor(headless=True) as extractor:
-                            for url in valid_urls:
-                                logger.info(f"Extracting job from: {url}")
-                                try:
-                                    extracted = await extractor.extract_job(url)
-                                    if extracted.error:
-                                        logger.warning(f"Error extracting {url}: {extracted.error}")
-                                    extracted_jobs.append(extracted)
-                                except Exception as e:
-                                    logger.error(f"Failed to extract {url}: {e}")
-                        return extracted_jobs
+                # Use importlib for reliable import regardless of sys.path
+                exec_dir = Path(__file__).parent
+                extractor_path = exec_dir / "upwork_deep_extractor.py"
 
-                    # Run async extraction
-                    extracted_jobs = asyncio.run(scrape_urls())
+                if extractor_path.exists():
+                    spec = importlib.util.spec_from_file_location("upwork_deep_extractor", extractor_path)
+                    upwork_deep_extractor = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(upwork_deep_extractor)
+                    UpworkDeepExtractor = upwork_deep_extractor.UpworkDeepExtractor
+                    extract_job_id_from_url = upwork_deep_extractor.extract_job_id_from_url
+                    logger.info(f"Deep extractor loaded from {extractor_path}")
+                else:
+                    raise ImportError(f"Deep extractor not found at {extractor_path}")
 
-                    for extracted in extracted_jobs:
-                        job = {
-                            "job_id": extracted.job_id,
-                            "url": extracted.url,
-                            "title": extracted.title or f"Job {extracted.job_id[:10]}...",
-                            "description": extracted.description or "No description available",
+                async def scrape_urls():
+                    extracted_jobs = []
+                    async with UpworkDeepExtractor(headless=True) as extractor:
+                        for url in valid_urls:
+                            logger.info(f"Extracting job from: {url}")
+                            try:
+                                extracted = await extractor.extract_job(url)
+                                if extracted.error:
+                                    logger.warning(f"Error extracting {url}: {extracted.error}")
+                                extracted_jobs.append(extracted)
+                            except Exception as e:
+                                logger.error(f"Failed to extract {url}: {e}")
+                    return extracted_jobs
+
+                # Run async extraction
+                extracted_jobs = asyncio.run(scrape_urls())
+
+                for extracted in extracted_jobs:
+                    job = {
+                        "job_id": extracted.job_id,
+                        "url": extracted.url,
+                        "title": extracted.title or f"Job {extracted.job_id[:10]}...",
+                        "description": extracted.description or "No description available",
+                        "source": "url_import",
+                        "status": "new",
+                    }
+                    # Add budget info if available
+                    if extracted.budget:
+                        job["budget_type"] = extracted.budget.budget_type
+                        job["budget_min"] = extracted.budget.budget_min
+                        job["budget_max"] = extracted.budget.budget_max
+                    # Add client info if available
+                    if extracted.client:
+                        job["client_country"] = extracted.client.country
+                        job["client_spent"] = extracted.client.total_spent
+                        job["payment_verified"] = extracted.client.payment_verified
+                    # Add skills
+                    if extracted.skills:
+                        job["skills"] = extracted.skills
+
+                    jobs.append(job)
+                    logger.info(f"Scraped job: {extracted.title or extracted.job_id}")
+
+            except ImportError as e:
+                logger.error(f"Deep extractor not available: {e}")
+                # Fallback to placeholder data
+                for url in valid_urls:
+                    job_id = None
+                    if "/jobs/~" in url:
+                        job_id = url.split("/jobs/~")[-1].split("?")[0].split("/")[0]
+                    elif "~" in url:
+                        match = re.search(r'~(\d+)', url)
+                        if match:
+                            job_id = match.group(1)
+
+                    if job_id:
+                        jobs.append({
+                            "job_id": job_id,
+                            "url": f"https://www.upwork.com/jobs/~{job_id}",
+                            "title": f"Job {job_id[:10]}... (pending extraction)",
+                            "description": "Job imported from URL - deep extractor unavailable",
                             "source": "url_import",
                             "status": "new",
-                        }
-                        # Add budget info if available
-                        if extracted.budget:
-                            job["budget_type"] = extracted.budget.budget_type
-                            job["budget_min"] = extracted.budget.budget_min
-                            job["budget_max"] = extracted.budget.budget_max
-                        # Add client info if available
-                        if extracted.client:
-                            job["client_country"] = extracted.client.country
-                            job["client_spent"] = extracted.client.total_spent
-                            job["payment_verified"] = extracted.client.payment_verified
-                        # Add skills
-                        if extracted.skills:
-                            job["skills"] = extracted.skills
+                        })
+            except Exception as e:
+                logger.error(f"Error during job extraction: {e}")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
 
-                        jobs.append(job)
-                        logger.info(f"Scraped job: {extracted.title or extracted.job_id}")
+            if not jobs:
+                logger.error("No valid job URLs found")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
 
-                except ImportError as e:
-                    logger.error(f"Deep extractor not available: {e}")
-                    # Fallback to placeholder data
-                    for url in valid_urls:
-                        job_id = None
-                        if "/jobs/~" in url:
-                            job_id = url.split("/jobs/~")[-1].split("?")[0].split("/")[0]
-                        elif "~" in url:
-                            match = re.search(r'~(\d+)', url)
-                            if match:
-                                job_id = match.group(1)
+            # Save jobs to file
+            url_jobs_file = output_file.parent / "url_import_jobs.json"
+            with open(url_jobs_file, 'w') as f:
+                json.dump(jobs, f, indent=2)
+            logger.info(f"Created {len(jobs)} job records from URLs")
 
-                        if job_id:
-                            jobs.append({
-                                "job_id": job_id,
-                                "url": f"https://www.upwork.com/jobs/~{job_id}",
-                                "title": f"Job {job_id[:10]}... (pending extraction)",
-                                "description": "Job imported from URL - deep extractor unavailable",
-                                "source": "url_import",
-                                "status": "new",
-                            })
-                except Exception as e:
-                    logger.error(f"Error during job extraction: {e}")
-                    PIPELINE_STATUS["last_run_status"] = "error"
-                    PIPELINE_STATUS["is_running"] = False
-                    return
-
-                if not jobs:
-                    logger.error("No valid job URLs found")
-                    PIPELINE_STATUS["last_run_status"] = "error"
-                    PIPELINE_STATUS["is_running"] = False
-                    return
-
-                # Save jobs to file
-                url_jobs_file = output_file.parent / "url_import_jobs.json"
-                with open(url_jobs_file, 'w') as f:
-                    json.dump(jobs, f, indent=2)
-                logger.info(f"Created {len(jobs)} job records from URLs")
-
-                if request.run_full_pipeline:
-                    # Run orchestrator with manual source
-                    logger.info("Running FULL pipeline with URL-imported jobs...")
-                    cmd = [
-                        sys.executable, "executions/upwork_pipeline_orchestrator.py",
-                        "--source", "manual",
-                        "--jobs", str(url_jobs_file),
-                        "--min-score", str(request.min_score),
-                        "--parallel", "2",
-                        "-o", str(output_file.with_suffix('.result.json'))
-                    ]
-                    logger.info(f"Running command: {' '.join(cmd)}")
-
-                    result = subprocess.run(
-                        cmd,
-                        cwd=str(Path(__file__).parent.parent),
-                        capture_output=True,
-                        text=True,
-                        timeout=900
-                    )
-
-                    if result.returncode != 0:
-                        logger.error(f"Pipeline orchestrator failed: {result.stderr}")
-                        PIPELINE_STATUS["last_run_status"] = "error"
-                        PIPELINE_STATUS["is_running"] = False
-                        return
-
-                    logger.info(f"Pipeline output: {result.stdout[-1000:]}")
-
-                    result_file = output_file.with_suffix('.result.json')
-                    if result_file.exists():
-                        with open(result_file) as f:
-                            pipeline_result = json.load(f)
-                        jobs_added = pipeline_result.get('jobs_processed', 0)
-                else:
-                    # Just import to sheet
-                    jobs_added = add_jobs_to_sheet(jobs)
-                    logger.info(f"Added {jobs_added} jobs to sheet")
-
-            elif request.run_full_pipeline:
-                # Run full pipeline orchestrator (scrape → score → extract → generate → approve)
-                logger.info("Running FULL pipeline with orchestrator...")
+            if request.run_full_pipeline:
+                # Run orchestrator with manual source
+                logger.info("Running FULL pipeline with URL-imported jobs...")
                 cmd = [
                     sys.executable, "executions/upwork_pipeline_orchestrator.py",
-                    "--source", request.source,
-                    "--limit", str(request.limit),
+                    "--source", "manual",
+                    "--jobs", str(url_jobs_file),
                     "--min-score", str(request.min_score),
                     "--parallel", "2",
                     "-o", str(output_file.with_suffix('.result.json'))
                 ]
-                # Add keywords if provided
-                if request.keywords:
-                    cmd.extend(["--keywords", request.keywords])
-
                 logger.info(f"Running command: {' '.join(cmd)}")
 
-                # Run with longer timeout for full pipeline
                 result = subprocess.run(
                     cmd,
                     cwd=str(Path(__file__).parent.parent),
                     capture_output=True,
                     text=True,
-                    timeout=900  # 15 minute timeout for full pipeline
+                    timeout=900
                 )
 
                 if result.returncode != 0:
@@ -1967,119 +2191,152 @@ async def api_trigger_pipeline(
 
                 logger.info(f"Pipeline output: {result.stdout[-1000:]}")
 
-                # Parse results from orchestrator output
                 result_file = output_file.with_suffix('.result.json')
                 if result_file.exists():
                     with open(result_file) as f:
                         pipeline_result = json.load(f)
                     jobs_added = pipeline_result.get('jobs_processed', 0)
-                    logger.info(f"Pipeline result: {pipeline_result.get('jobs_ingested', 0)} ingested, "
-                              f"{pipeline_result.get('jobs_after_prefilter', 0)} after filter, "
-                              f"{pipeline_result.get('jobs_sent_to_slack', 0)} sent to approval")
-
-            elif request.source == "apify":
-                # Run scrape-only mode (just import jobs to sheet)
-                logger.info("Running SCRAPE ONLY mode...")
-                cmd = [
-                    sys.executable, "executions/upwork_apify_scraper.py",
-                    "--limit", str(request.limit),
-                    "-o", str(output_file)
-                ]
-                # Add optional filters (keywords passed as comma-separated for server-side Apify filtering)
-                if request.keywords:
-                    cmd.extend(["--keywords", request.keywords])
-                if request.location:
-                    # Location filter not supported by scraper yet, log it
-                    logger.info(f"Location filter requested: {request.location} (not yet implemented in scraper)")
-                if request.from_date:
-                    cmd.extend(["--from-date", request.from_date])
-                if request.to_date:
-                    cmd.extend(["--to-date", request.to_date])
-                if request.min_hourly is not None:
-                    cmd.extend(["--min-hourly", str(request.min_hourly)])
-                if request.max_hourly is not None:
-                    cmd.extend(["--max-hourly", str(request.max_hourly)])
-                if request.min_fixed is not None:
-                    cmd.extend(["--min-fixed", str(request.min_fixed)])
-                if request.max_fixed is not None:
-                    cmd.extend(["--max-fixed", str(request.max_fixed)])
-
-                logger.info(f"Running command: {' '.join(cmd)}")
-
-                # Run synchronously and wait for completion
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(Path(__file__).parent.parent),
-                    capture_output=True,
-                    text=True,
-                    timeout=300  # 5 minute timeout
-                )
-
-                if result.returncode != 0:
-                    logger.error(f"Scraper failed: {result.stderr}")
-                    PIPELINE_STATUS["last_run_status"] = "error"
-                    PIPELINE_STATUS["is_running"] = False
-                    return
-
-                logger.info(f"Scraper output: {result.stdout[-500:]}")
-
-                # Load scraped jobs and add to sheet
-                if output_file.exists():
-                    with open(output_file) as f:
-                        jobs = json.load(f)
-                    logger.info(f"Loaded {len(jobs)} jobs from scraper output")
-
-                    # Add jobs to Google Sheet
-                    jobs_added = add_jobs_to_sheet(jobs)
-                    logger.info(f"Added {jobs_added} new jobs to sheet")
-                else:
-                    logger.warning(f"Output file not found: {output_file}")
-
-            elif request.source == "gmail":
-                # Gmail source
-                cmd = [
-                    sys.executable, "executions/gmail_unified.py",
-                    "--check-upwork-alerts"
-                ]
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(Path(__file__).parent.parent),
-                    capture_output=True,
-                    text=True,
-                    timeout=120
-                )
-                if result.returncode != 0:
-                    logger.error(f"Gmail check failed: {result.stderr}")
-
             else:
-                logger.error(f"Unknown source: {request.source}")
+                # Just import to sheet
+                jobs_added = add_jobs_to_sheet(jobs)
+                logger.info(f"Added {jobs_added} jobs to sheet")
+
+        elif request.run_full_pipeline:
+            # Run full pipeline orchestrator (scrape → score → extract → generate → approve)
+            logger.info("Running FULL pipeline with orchestrator...")
+            cmd = [
+                sys.executable, "executions/upwork_pipeline_orchestrator.py",
+                "--source", request.source,
+                "--limit", str(request.limit),
+                "--min-score", str(request.min_score),
+                "--parallel", "2",
+                "-o", str(output_file.with_suffix('.result.json'))
+            ]
+            # Add keywords if provided
+            if request.keywords:
+                cmd.extend(["--keywords", request.keywords])
+
+            logger.info(f"Running command: {' '.join(cmd)}")
+
+            # Run with longer timeout for full pipeline
+            result = subprocess.run(
+                cmd,
+                cwd=str(Path(__file__).parent.parent),
+                capture_output=True,
+                text=True,
+                timeout=900  # 15 minute timeout for full pipeline
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Pipeline orchestrator failed: {result.stderr}")
                 PIPELINE_STATUS["last_run_status"] = "error"
                 PIPELINE_STATUS["is_running"] = False
                 return
 
-            PIPELINE_STATUS["last_run_status"] = "success"
-            PIPELINE_STATUS["jobs_processed_today"] += jobs_added
-            logger.info(f"Pipeline completed successfully. Jobs added: {jobs_added}")
+            logger.info(f"Pipeline output: {result.stdout[-1000:]}")
 
-        except subprocess.TimeoutExpired:
-            logger.error("Pipeline timed out")
+            # Parse results from orchestrator output
+            result_file = output_file.with_suffix('.result.json')
+            if result_file.exists():
+                with open(result_file) as f:
+                    pipeline_result = json.load(f)
+                jobs_added = pipeline_result.get('jobs_processed', 0)
+                logger.info(f"Pipeline result: {pipeline_result.get('jobs_ingested', 0)} ingested, "
+                          f"{pipeline_result.get('jobs_after_prefilter', 0)} after filter, "
+                          f"{pipeline_result.get('jobs_sent_to_slack', 0)} sent to approval")
+
+        elif request.source == "apify":
+            # Run scrape-only mode (just import jobs to sheet)
+            logger.info("Running SCRAPE ONLY mode...")
+            cmd = [
+                sys.executable, "executions/upwork_apify_scraper.py",
+                "--limit", str(request.limit),
+                "-o", str(output_file)
+            ]
+            # Add optional filters (keywords passed as comma-separated for server-side Apify filtering)
+            if request.keywords:
+                cmd.extend(["--keywords", request.keywords])
+            if request.location:
+                # Location filter not supported by scraper yet, log it
+                logger.info(f"Location filter requested: {request.location} (not yet implemented in scraper)")
+            if request.from_date:
+                cmd.extend(["--from-date", request.from_date])
+            if request.to_date:
+                cmd.extend(["--to-date", request.to_date])
+            if request.min_hourly is not None:
+                cmd.extend(["--min-hourly", str(request.min_hourly)])
+            if request.max_hourly is not None:
+                cmd.extend(["--max-hourly", str(request.max_hourly)])
+            if request.min_fixed is not None:
+                cmd.extend(["--min-fixed", str(request.min_fixed)])
+            if request.max_fixed is not None:
+                cmd.extend(["--max-fixed", str(request.max_fixed)])
+
+            logger.info(f"Running command: {' '.join(cmd)}")
+
+            # Run synchronously and wait for completion
+            result = subprocess.run(
+                cmd,
+                cwd=str(Path(__file__).parent.parent),
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Scraper failed: {result.stderr}")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
+
+            logger.info(f"Scraper output: {result.stdout[-500:]}")
+
+            # Load scraped jobs and add to sheet
+            if output_file.exists():
+                with open(output_file) as f:
+                    jobs = json.load(f)
+                logger.info(f"Loaded {len(jobs)} jobs from scraper output")
+
+                # Add jobs to Google Sheet
+                jobs_added = add_jobs_to_sheet(jobs)
+                logger.info(f"Added {jobs_added} new jobs to sheet")
+            else:
+                logger.warning(f"Output file not found: {output_file}")
+
+        elif request.source == "gmail":
+            # Gmail source
+            cmd = [
+                sys.executable, "executions/gmail_unified.py",
+                "--check-upwork-alerts"
+            ]
+            result = subprocess.run(
+                cmd,
+                cwd=str(Path(__file__).parent.parent),
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if result.returncode != 0:
+                logger.error(f"Gmail check failed: {result.stderr}")
+
+        else:
+            logger.error(f"Unknown source: {request.source}")
             PIPELINE_STATUS["last_run_status"] = "error"
-        except Exception as e:
-            logger.error(f"Pipeline error: {e}")
-            PIPELINE_STATUS["last_run_status"] = "error"
-        finally:
             PIPELINE_STATUS["is_running"] = False
+            return
 
-    threading.Thread(target=run_pipeline, daemon=True).start()
+        PIPELINE_STATUS["last_run_status"] = "success"
+        PIPELINE_STATUS["jobs_processed_today"] += jobs_added
+        logger.info(f"Pipeline completed successfully. Jobs added: {jobs_added}")
 
-    return {
-        "success": True,
-        "run_id": run_id,
-        "source": request.source,
-        "limit": request.limit,
-        "keywords": request.keywords,
-        "location": request.location
-    }
+    except subprocess.TimeoutExpired:
+        logger.error("Pipeline timed out")
+        PIPELINE_STATUS["last_run_status"] = "error"
+    except Exception as e:
+        logger.error(f"Pipeline error: {e}")
+        PIPELINE_STATUS["last_run_status"] = "error"
+    finally:
+        PIPELINE_STATUS["is_running"] = False
 
 @app.post("/api/admin/pipeline/import")
 async def api_import_jobs(user: dict = Depends(get_current_user)):
@@ -2871,6 +3128,116 @@ async def execute_webhook(slug: str, payload: Optional[dict] = None):
         logger.error(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================================================
+# SCHEDULE ENDPOINTS
+# ============================================================================
+
+class ScheduleConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    schedule_type: Optional[str] = None
+    interval_hours: Optional[int] = None
+    cron_days: Optional[List[str]] = None
+    cron_hour: Optional[int] = None
+    cron_minute: Optional[int] = None
+    submission_mode: Optional[str] = None
+    pipeline_defaults: Optional[Dict[str, Any]] = None
+
+class ScheduleConfigCreate(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    schedule_type: Optional[str] = None
+    interval_hours: Optional[int] = None
+    cron_days: Optional[List[str]] = None
+    cron_hour: Optional[int] = None
+    cron_minute: Optional[int] = None
+    submission_mode: Optional[str] = None
+    pipeline_defaults: Optional[Dict[str, Any]] = None
+
+def _enrich_schedule_next_run(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach live next_run_at from scheduler to a schedule dict."""
+    job = scheduler.get_job(_job_id_for_schedule(s["id"]))
+    if job and job.next_run_time:
+        s["next_run_at"] = job.next_run_time.isoformat()
+    else:
+        s["next_run_at"] = None
+    return s
+
+@app.get("/api/admin/schedules")
+async def api_list_schedules(user: dict = Depends(get_current_user)):
+    """List all schedules with live next_run_at."""
+    schedules = load_schedules()
+    return [_enrich_schedule_next_run(s) for s in schedules]
+
+@app.post("/api/admin/schedules")
+async def api_create_schedule(
+    body: ScheduleConfigCreate,
+    user: dict = Depends(get_current_user)
+):
+    """Create a new schedule with defaults, returns it with generated ID."""
+    schedules = load_schedules()
+    overrides = body.model_dump(exclude_unset=True)
+    new_sched = _make_schedule(overrides)
+    schedules.append(new_sched)
+    _apply_single_schedule(new_sched)
+    save_schedules(schedules)
+    return _enrich_schedule_next_run(new_sched)
+
+@app.put("/api/admin/schedules/{schedule_id}")
+async def api_update_schedule(
+    schedule_id: str,
+    update: ScheduleConfigUpdate,
+    user: dict = Depends(get_current_user)
+):
+    """Update a specific schedule and re-apply it."""
+    schedules = load_schedules()
+    sched = _get_schedule_by_id(schedules, schedule_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    update_data = update.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        if k == "pipeline_defaults" and isinstance(v, dict):
+            sched.setdefault("pipeline_defaults", {}).update(v)
+        else:
+            sched[k] = v
+    _apply_single_schedule(sched)
+    save_schedules(schedules)
+    return _enrich_schedule_next_run(sched)
+
+@app.delete("/api/admin/schedules/{schedule_id}")
+async def api_delete_schedule(
+    schedule_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Delete a schedule and remove its APScheduler job."""
+    schedules = load_schedules()
+    sched = _get_schedule_by_id(schedules, schedule_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    try:
+        scheduler.remove_job(_job_id_for_schedule(schedule_id))
+    except Exception:
+        pass
+    schedules = [s for s in schedules if s["id"] != schedule_id]
+    save_schedules(schedules)
+    return {"success": True, "deleted_id": schedule_id}
+
+@app.post("/api/admin/schedules/{schedule_id}/toggle")
+async def api_toggle_schedule(
+    schedule_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Quick enable/disable toggle for one schedule."""
+    schedules = load_schedules()
+    sched = _get_schedule_by_id(schedules, schedule_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    sched["enabled"] = not sched.get("enabled", False)
+    _apply_single_schedule(sched)
+    save_schedules(schedules)
+    _enrich_schedule_next_run(sched)
+    return {"enabled": sched["enabled"], "next_run_at": sched.get("next_run_at")}
 
 # ============================================================================
 # STATIC FILE SERVING (for production frontend)

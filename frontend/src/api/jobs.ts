@@ -14,6 +14,7 @@ import type {
   JobStatus,
   VideoGenerationStatus,
   ActiveVideoGenerationsResponse,
+  ScheduleConfig,
 } from './types';
 
 // Auth API
@@ -159,6 +160,17 @@ export const updateJobStatus = async (
   return response.data;
 };
 
+export const updateJobStatusBulk = async (
+  jobIds: string[],
+  status: string
+): Promise<{ success: boolean; updated_count: number; message: string }> => {
+  const response = await apiClient.patch('/jobs/bulk/status', {
+    job_ids: jobIds,
+    status,
+  });
+  return response.data;
+};
+
 export const getPipelineStatus = async (): Promise<PipelineStatusResponse> => {
   const response = await apiClient.get<PipelineStatusResponse>('/admin/pipeline/status');
   return response.data;
@@ -262,5 +274,31 @@ export const getVideoGenerationStatus = async (jobId: string): Promise<VideoGene
 
 export const getActiveVideoGenerations = async (): Promise<ActiveVideoGenerationsResponse> => {
   const response = await apiClient.get<ActiveVideoGenerationsResponse>('/video-generation/active');
+  return response.data;
+};
+
+// Schedule API (multi-schedule CRUD)
+export const getSchedules = async (): Promise<ScheduleConfig[]> => {
+  const response = await apiClient.get<ScheduleConfig[]>('/admin/schedules');
+  return response.data;
+};
+
+export const createSchedule = async (config?: Partial<ScheduleConfig>): Promise<ScheduleConfig> => {
+  const response = await apiClient.post<ScheduleConfig>('/admin/schedules', config || {});
+  return response.data;
+};
+
+export const updateSchedule = async (id: string, config: Partial<ScheduleConfig>): Promise<ScheduleConfig> => {
+  const response = await apiClient.put<ScheduleConfig>(`/admin/schedules/${encodeURIComponent(id)}`, config);
+  return response.data;
+};
+
+export const deleteSchedule = async (id: string): Promise<{ success: boolean; deleted_id: string }> => {
+  const response = await apiClient.delete<{ success: boolean; deleted_id: string }>(`/admin/schedules/${encodeURIComponent(id)}`);
+  return response.data;
+};
+
+export const toggleSchedule = async (id: string): Promise<{ enabled: boolean; next_run_at: string | null }> => {
+  const response = await apiClient.post<{ enabled: boolean; next_run_at: string | null }>(`/admin/schedules/${encodeURIComponent(id)}/toggle`);
   return response.data;
 };
