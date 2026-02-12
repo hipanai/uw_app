@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, type SubmissionStatus, type ActiveSubmissionsResponse, type SubmissionModeResponse } from '@/api/jobs';
-import type { VideoGenerationStatus, ActiveVideoGenerationsResponse } from '@/api/types';
+import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
+import type { VideoGenerationStatus } from '@/api/types';
 import type { Job, JobStatsResponse, JobStatus } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
 import { formatBudget, truncateText } from '@/lib/utils';

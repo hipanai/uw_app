@@ -22,6 +22,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Ensure repo root is on sys.path so uw_app_assist is importable
+import sys
+from pathlib import Path
+_repo_root = str(Path(__file__).resolve().parent.parent)
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 # Allow callers to use uw_app_assist flash_mage scraper as drop-in replacement
 try:
     from uw_app_assist.scraper import scrape_upwork_jobs as _flash_mage_scraper
@@ -313,8 +320,14 @@ def main():
     if args.keywords:
         keywords_list = [k.strip() for k in args.keywords.split(',') if k.strip()]
 
-    # Scrape jobs
-    jobs = scrape_upwork_jobs(
+    # Scrape jobs — prefer flash_mage actor when available
+    scraper_fn = _flash_mage_scraper if FLASH_MAGE_AVAILABLE else scrape_upwork_jobs
+    if FLASH_MAGE_AVAILABLE:
+        print("Using flash_mage/upwork scraper (uw_app_assist)")
+    else:
+        print("Using legacy upwork-vibe scraper (flash_mage unavailable)")
+
+    jobs = scraper_fn(
         limit=args.limit,
         from_date=from_date,
         to_date=to_date,
@@ -326,30 +339,39 @@ def main():
         payment_verified=args.verified_payment,
     )
 
-    # Apply post-scrape filters
-    experience_levels = args.experience.split(',') if args.experience else None
+    if FLASH_MAGE_AVAILABLE:
+        # flash_mage scraper already returns formatted & filtered jobs
+        formatted_jobs = jobs
+    else:
+        # Legacy path: apply post-scrape filters and format
+        experience_levels = args.experience.split(',') if args.experience else None
 
-    filtered_jobs = filter_jobs(
-        jobs,
-        keyword=args.keyword,
-        min_hourly=args.min_hourly,
-        max_hourly=args.max_hourly,
-        min_fixed=args.min_fixed,
-        max_fixed=args.max_fixed,
-        experience_levels=experience_levels,
-        verified_payment=args.verified_payment,
-        min_client_spent=args.min_spent,
-        min_client_hires=args.min_hires,
-    )
+        filtered_jobs = filter_jobs(
+            jobs,
+            keyword=args.keyword,
+            min_hourly=args.min_hourly,
+            max_hourly=args.max_hourly,
+            min_fixed=args.min_fixed,
+            max_fixed=args.max_fixed,
+            experience_levels=experience_levels,
+            verified_payment=args.verified_payment,
+            min_client_spent=args.min_spent,
+            min_client_hires=args.min_hires,
+        )
+        formatted_jobs = [format_job(job) for job in filtered_jobs]
 
-    # Format jobs
-    formatted_jobs = [format_job(job) for job in filtered_jobs]
+    # Save to file first (before print which can fail on Windows due to encoding)
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(formatted_jobs, f, indent=2)
+        print(f"\nSaved {len(formatted_jobs)} jobs to {args.output}")
 
-    # Display results
+    # Display results (encode-safe for Windows cp1252 console)
     print(f"\n=== {len(formatted_jobs)} jobs after filtering ===\n")
 
     for i, job in enumerate(formatted_jobs[:10], 1):
-        print(f"{i}. {job['title'][:70]}")
+        title = job['title'][:70].encode('ascii', 'replace').decode('ascii')
+        print(f"{i}. {title}")
         print(f"   Budget: {job['budget']} | Level: {job['experience_level']} | Connects: {job['connects_cost']}")
         print(f"   Client: {job['client']['country']} | Spent: ${job['client']['total_spent']:,.0f} | Hires: {job['client']['total_hires']}")
         print(f"   Skills: {', '.join(job['skills'][:5])}")
@@ -358,12 +380,6 @@ def main():
 
     if len(formatted_jobs) > 10:
         print(f"... and {len(formatted_jobs) - 10} more jobs")
-
-    # Save to file
-    if args.output:
-        with open(args.output, 'w') as f:
-            json.dump(formatted_jobs, f, indent=2)
-        print(f"\nSaved {len(formatted_jobs)} jobs to {args.output}")
 
     return formatted_jobs
 

@@ -13,6 +13,22 @@ from .date_filter import filter_by_date
 
 logger = logging.getLogger(__name__)
 
+# flash_mage fixed-price bucket strings
+_FIXED_BUCKETS = ["100-499", "500-999", "1000-4999", "5000-"]
+_FIXED_THRESHOLDS = [(100, 499), (500, 999), (1000, 4999), (5000, float("inf"))]
+
+
+def _fixed_price_buckets(min_fixed: float | None, max_fixed: float | None) -> list[str]:
+    """Map min/max fixed price to flash_mage bucket strings."""
+    if min_fixed is None and max_fixed is None:
+        return []
+    buckets = []
+    for bucket_str, (lo, hi) in zip(_FIXED_BUCKETS, _FIXED_THRESHOLDS):
+        # Include bucket if its range overlaps with the requested range
+        if (min_fixed is None or hi >= min_fixed) and (max_fixed is None or lo <= max_fixed):
+            buckets.append(bucket_str)
+    return buckets
+
 
 def scrape_upwork_jobs(
     limit: int = 50,
@@ -31,8 +47,7 @@ def scrape_upwork_jobs(
     """Scrape Upwork jobs using flash_mage/upwork Apify actor.
 
     Signature matches the existing scrape_upwork_jobs() so it can be
-    used as a drop-in replacement. Parameters that flash_mage doesn't
-    support server-side are applied as post-retrieval filters.
+    used as a drop-in replacement.
 
     Args:
         limit: Maximum number of jobs to fetch
@@ -51,19 +66,34 @@ def scrape_upwork_jobs(
     Returns:
         List of formatted job dicts matching the pipeline contract
     """
-    # Build flash_mage actor input
+    # Build actor input using the correct flash_mage schema
     input_data = {
         "maxItems": limit,
         "sort": sort,
+        "hourly": True,
+        "fixed": True,
+        "update_boolean": False,
+        "authentication": "no_authentication",
     }
 
+    # Keywords → query (array of strings)
     if keywords:
-        # flash_mage accepts a search query string
-        input_data["search"] = " ".join(keywords)
+        input_data["query"] = keywords
+
+    # Hourly rate bounds (server-side)
+    if min_hourly is not None:
+        input_data["hourly_min_price"] = int(min_hourly)
+    if max_hourly is not None:
+        input_data["hourly_max_price"] = int(max_hourly)
+
+    # Fixed price buckets (server-side)
+    buckets = _fixed_price_buckets(min_fixed, max_fixed)
+    if buckets:
+        input_data["fixed_prices"] = buckets
 
     logger.info(
         f"Starting flash_mage scraper: limit={limit}, keywords={keywords}, "
-        f"days_back={days_back}"
+        f"days_back={days_back}, input_data={input_data}"
     )
 
     # Run the actor
@@ -82,23 +112,6 @@ def scrape_upwork_jobs(
     jobs = filter_by_date(jobs, from_date=from_date, to_date=to_date, days_back=days_back)
     logger.info(f"{len(jobs)} jobs after date filter")
 
-    # Client-side budget filter
-    if min_fixed is not None or max_fixed is not None:
-        jobs = [
-            j for j in jobs
-            if j.get("budget_type") == "fixed"
-            and (min_fixed is None or (j.get("budget_max") or 0) >= min_fixed)
-            and (max_fixed is None or (j.get("budget_min") or 0) <= max_fixed)
-        ]
-
-    if min_hourly is not None or max_hourly is not None:
-        jobs = [
-            j for j in jobs
-            if j.get("budget_type") == "hourly"
-            and (min_hourly is None or (j.get("budget_max") or 0) >= min_hourly)
-            and (max_hourly is None or (j.get("budget_min") or 0) <= max_hourly)
-        ]
-
     # Payment verified filter
     if payment_verified:
         jobs = [j for j in jobs if j.get("client", {}).get("payment_verified")]
@@ -112,4 +125,4 @@ def scrape_upwork_jobs(
         ]
 
     logger.info(f"{len(jobs)} jobs after all filters")
-    return jobs
+    return jobs[:limit]
