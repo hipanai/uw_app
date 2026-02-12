@@ -627,6 +627,167 @@ def upload_pdf_to_drive(pdf_path: Path, drive_service) -> Optional[str]:
         return None
 
 
+def upload_video_to_drive(video_path: Path, drive_service, auto_delete_days: int = 30) -> Optional[str]:
+    """Upload video to Google Drive and return public URL.
+
+    Sets a description with deletion date for cleanup tracking.
+    Videos are automatically scheduled for deletion after auto_delete_days.
+
+    Args:
+        video_path: Path to the local video file
+        drive_service: Google Drive API service
+        auto_delete_days: Days until auto-deletion (default 30)
+
+    Returns:
+        Public URL to the video on Google Drive, or None on failure
+    """
+    from datetime import timedelta
+
+    if not drive_service or not video_path.exists():
+        logger.warning(f"Cannot upload video: service={bool(drive_service)}, exists={video_path.exists() if video_path else False}")
+        return None
+
+    try:
+        from googleapiclient.http import MediaFileUpload
+
+        # Calculate deletion date
+        delete_date = datetime.now() + timedelta(days=auto_delete_days)
+        delete_date_str = delete_date.strftime('%Y-%m-%d')
+
+        file_metadata = {
+            'name': video_path.name,
+            'mimeType': 'video/mp4',
+            'description': f'Auto-delete after: {delete_date_str}'
+        }
+
+        media = MediaFileUpload(str(video_path), mimetype='video/mp4', resumable=True)
+
+        file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id,webViewLink,webContentLink'
+        ).execute()
+
+        file_id = file.get('id')
+        logger.info(f"Video uploaded to Drive: {file_id}")
+
+        # Make publicly viewable
+        drive_service.permissions().create(
+            fileId=file_id,
+            body={'type': 'anyone', 'role': 'reader'},
+            fields='id'
+        ).execute()
+
+        # Prefer direct download link for video embedding, fallback to view link
+        video_url = file.get('webContentLink') or file.get('webViewLink') or f"https://drive.google.com/file/d/{file_id}/view"
+        logger.info(f"Video public URL: {video_url}")
+
+        return video_url
+
+    except Exception as e:
+        logger.error(f"Failed to upload video to Drive: {e}")
+        return None
+
+
+def cleanup_expired_drive_videos(drive_service, folder_id: Optional[str] = None) -> int:
+    """Delete videos from Drive that have passed their auto-delete date.
+
+    Searches for files with 'Auto-delete after: YYYY-MM-DD' in description
+    and deletes those past their expiration date.
+
+    Args:
+        drive_service: Google Drive API service
+        folder_id: Optional folder to limit search (searches all if None)
+
+    Returns:
+        Number of files deleted
+    """
+    if not drive_service:
+        return 0
+
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        # Search for video files with auto-delete description
+        query = "mimeType='video/mp4' and description contains 'Auto-delete after:'"
+        if folder_id:
+            query += f" and '{folder_id}' in parents"
+
+        results = drive_service.files().list(
+            q=query,
+            fields='files(id, name, description)',
+            pageSize=100
+        ).execute()
+
+        files = results.get('files', [])
+        deleted_count = 0
+
+        for file in files:
+            description = file.get('description', '')
+            # Extract date from description
+            if 'Auto-delete after:' in description:
+                try:
+                    date_str = description.split('Auto-delete after:')[1].strip()[:10]
+                    if date_str <= today:
+                        drive_service.files().delete(fileId=file['id']).execute()
+                        logger.info(f"Deleted expired video: {file['name']} (expired {date_str})")
+                        deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to delete {file['name']}: {e}")
+
+        if deleted_count:
+            logger.info(f"Cleaned up {deleted_count} expired videos from Drive")
+
+        return deleted_count
+
+    except Exception as e:
+        logger.error(f"Failed to cleanup expired videos: {e}")
+        return 0
+
+
+def cleanup_local_videos(video_dir: Path = None, max_age_days: int = 2) -> int:
+    """Delete local video files older than max_age_days.
+
+    Args:
+        video_dir: Directory containing video files (defaults to .tmp/composed_videos)
+        max_age_days: Delete files older than this many days (default 2)
+
+    Returns:
+        Number of files deleted
+    """
+    from datetime import timedelta
+    import time
+
+    if video_dir is None:
+        video_dir = TMP_DIR / "composed_videos"
+
+    if not video_dir.exists():
+        return 0
+
+    deleted_count = 0
+    cutoff_time = time.time() - (max_age_days * 24 * 60 * 60)
+
+    try:
+        for video_file in video_dir.glob("*.mp4"):
+            try:
+                file_mtime = video_file.stat().st_mtime
+                if file_mtime < cutoff_time:
+                    video_file.unlink()
+                    logger.info(f"Deleted old local video: {video_file.name}")
+                    deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete {video_file.name}: {e}")
+
+        if deleted_count:
+            logger.info(f"Cleaned up {deleted_count} local video(s) older than {max_age_days} days")
+
+        return deleted_count
+
+    except Exception as e:
+        logger.error(f"Failed to cleanup local videos: {e}")
+        return 0
+
+
 def generate_cover_letter(
     job: JobData,
     proposal_doc_url: Optional[str],
@@ -960,15 +1121,42 @@ def generate_deliverables(
             logger.info("Generating HeyGen video...")
             # Use provided screenshot_path or fall back to job's screenshot
             effective_screenshot = screenshot_path or job.screenshot_path
-            video_url = asyncio.run(generate_heygen_video_async(
+            video_path = asyncio.run(generate_heygen_video_async(
                 job=job,
                 screenshot_path=effective_screenshot,
                 mock=mock,
                 proposal_text=result.proposal_text  # Video narrates the proposal
             ))
-            result.video_url = video_url
-            if video_url:
-                logger.info(f"Video created: {video_url}")
+
+            # Upload composed video to Google Drive (30-day auto-delete)
+            if video_path:
+                if mock:
+                    result.video_url = f"https://drive.google.com/file/d/mock_video_{job.job_id}/view"
+                elif video_path.startswith('http'):
+                    # Already a cloud URL (raw HeyGen fallback), use as-is
+                    result.video_url = video_path
+                elif drive_service:
+                    # Local file path - upload to Drive
+                    local_video_path = Path(video_path)
+                    if local_video_path.exists():
+                        logger.info(f"Uploading composed video to Google Drive...")
+                        cloud_url = upload_video_to_drive(local_video_path, drive_service, auto_delete_days=30)
+                        if cloud_url:
+                            result.video_url = cloud_url
+                            # Clean up local file after successful upload
+                            local_video_path.unlink(missing_ok=True)
+                            logger.info(f"Video uploaded to Drive: {cloud_url}")
+                        else:
+                            # Keep local path as fallback
+                            result.video_url = video_path
+                            logger.warning(f"Drive upload failed, using local path: {video_path}")
+                    else:
+                        logger.warning(f"Composed video not found at: {video_path}")
+                else:
+                    # No drive service, keep local path
+                    result.video_url = video_path
+
+                logger.info(f"Video URL: {result.video_url}")
 
         # Step 5: Generate cover letter
         logger.info("Generating cover letter...")

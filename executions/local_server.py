@@ -1205,7 +1205,7 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
         try:
             # Import deliverable generator
             sys.path.insert(0, str(Path(__file__).parent))
-            from upwork_deliverable_generator import generate_heygen_video_async, JobData
+            from upwork_deliverable_generator import generate_heygen_video_async, JobData, upload_video_to_drive, get_google_services
 
             # Create JobData from sheet data
             job = JobData(
@@ -1241,16 +1241,43 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
                 add_video_generation_log(job_id, "Calling HeyGen API to generate avatar video...")
                 update_video_generation_status(job_id, stage="heygen_processing")
 
-                video_url = loop.run_until_complete(run_video_gen())
+                video_path = loop.run_until_complete(run_video_gen())
 
-                if video_url:
+                if video_path:
+                    # Check if it's a local file that needs uploading to Drive
+                    final_video_url = video_path
+                    if video_path and not video_path.startswith('http'):
+                        # Local composed video - upload to Google Drive
+                        add_video_generation_log(job_id, "Uploading composed video to Google Drive...")
+                        update_video_generation_status(job_id, stage="uploading_to_drive")
+                        try:
+                            drive_service, _, _ = get_google_services(mock=False)
+                            if drive_service:
+                                local_path = Path(video_path)
+                                if local_path.exists():
+                                    cloud_url = upload_video_to_drive(local_path, drive_service, auto_delete_days=30)
+                                    if cloud_url:
+                                        final_video_url = cloud_url
+                                        # Clean up local file after successful upload
+                                        local_path.unlink(missing_ok=True)
+                                        add_video_generation_log(job_id, f"Video uploaded to Drive (30-day auto-delete)")
+                                    else:
+                                        add_video_generation_log(job_id, "Drive upload failed, using local path")
+                                else:
+                                    add_video_generation_log(job_id, f"Local video not found: {video_path}")
+                            else:
+                                add_video_generation_log(job_id, "Google Drive service unavailable, using local path")
+                        except Exception as upload_err:
+                            add_video_generation_log(job_id, f"Drive upload error: {upload_err}")
+                            logger.warning(f"Failed to upload video to Drive: {upload_err}")
+
                     add_video_generation_log(job_id, f"Video generated successfully!")
-                    update_video_generation_status(job_id, status="completed", stage="done", video_url=video_url)
+                    update_video_generation_status(job_id, status="completed", stage="done", video_url=final_video_url)
 
                     # Update job in sheet with video URL
-                    update_job_in_sheet(job_id, {"video_url": video_url})
+                    update_job_in_sheet(job_id, {"video_url": final_video_url})
                     add_video_generation_log(job_id, f"Video URL saved to job record")
-                    logger.info(f"Video generated for job {job_id}: {video_url}")
+                    logger.info(f"Video generated for job {job_id}: {final_video_url}")
                 else:
                     add_video_generation_log(job_id, "Video generation returned no URL")
                     update_video_generation_status(job_id, status="failed", stage="error", error="No video URL returned")
@@ -1762,7 +1789,7 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
 
     try:
         sys.path.insert(0, str(Path(__file__).parent))
-        from upwork_deliverable_generator import generate_heygen_video_async, JobData
+        from upwork_deliverable_generator import generate_heygen_video_async, JobData, upload_video_to_drive, get_google_services
 
         job = JobData(
             job_id=str(job_data.get('job_id', '')),
@@ -1796,18 +1823,37 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
             add_video_generation_log(job_id, "Calling HeyGen API...")
             update_video_generation_status(job_id, stage="heygen_processing")
 
-            video_url = loop.run_until_complete(run_video_gen())
+            video_path = loop.run_until_complete(run_video_gen())
 
-            if video_url:
+            if video_path:
+                # Upload to Google Drive if local file
+                final_video_url = video_path
+                if video_path and not video_path.startswith('http'):
+                    add_video_generation_log(job_id, "Uploading composed video to Google Drive...")
+                    update_video_generation_status(job_id, stage="uploading_to_drive")
+                    try:
+                        drive_service, _, _ = get_google_services(mock=False)
+                        if drive_service:
+                            local_path = Path(video_path)
+                            if local_path.exists():
+                                cloud_url = upload_video_to_drive(local_path, drive_service, auto_delete_days=30)
+                                if cloud_url:
+                                    final_video_url = cloud_url
+                                    local_path.unlink(missing_ok=True)
+                                    add_video_generation_log(job_id, "Video uploaded to Drive (30-day auto-delete)")
+                    except Exception as upload_err:
+                        add_video_generation_log(job_id, f"Drive upload error: {upload_err}")
+                        logger.warning(f"[Auto] Failed to upload video to Drive: {upload_err}")
+
                 add_video_generation_log(job_id, "Video generated successfully!")
-                update_video_generation_status(job_id, status="completed", stage="done", video_url=video_url)
-                update_job_in_sheet(job_id, {"video_url": video_url})
-                logger.info(f"[Auto] Video generated for job {job_id}: {video_url}")
+                update_video_generation_status(job_id, status="completed", stage="done", video_url=final_video_url)
+                update_job_in_sheet(job_id, {"video_url": final_video_url})
+                logger.info(f"[Auto] Video generated for job {job_id}: {final_video_url}")
 
                 # Auto-submit if in automatic mode
                 if auto_submit:
                     add_video_generation_log(job_id, "Auto-submitting to Upwork...")
-                    loop.run_until_complete(run_auto_submit(job_id, job_data, video_url))
+                    loop.run_until_complete(run_auto_submit(job_id, job_data, final_video_url))
             else:
                 add_video_generation_log(job_id, "Video generation returned no URL")
                 update_video_generation_status(job_id, status="failed", stage="error", error="No video URL")
@@ -2594,6 +2640,55 @@ async def api_get_health(user: dict = Depends(get_current_user)):
         "services": services,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+
+@app.post("/api/admin/cleanup-videos")
+async def api_cleanup_expired_videos(user: dict = Depends(get_current_user)):
+    """Manually trigger cleanup of expired videos.
+
+    Cleans up:
+    - Google Drive: Videos past their 30-day expiration date
+    - Local: Video files older than 2 days in .tmp/composed_videos/
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from upwork_deliverable_generator import cleanup_expired_drive_videos, cleanup_local_videos, get_google_services
+
+        results = {
+            "drive_deleted": 0,
+            "local_deleted": 0,
+            "errors": []
+        }
+
+        # Cleanup Google Drive expired videos (30+ days old)
+        try:
+            drive_service, _, _ = get_google_services(mock=False)
+            if drive_service:
+                results["drive_deleted"] = cleanup_expired_drive_videos(drive_service)
+            else:
+                results["errors"].append("Google Drive service unavailable")
+        except Exception as e:
+            results["errors"].append(f"Drive cleanup error: {e}")
+
+        # Cleanup local videos (2+ days old)
+        try:
+            results["local_deleted"] = cleanup_local_videos(max_age_days=2)
+        except Exception as e:
+            results["errors"].append(f"Local cleanup error: {e}")
+
+        total_deleted = results["drive_deleted"] + results["local_deleted"]
+
+        return {
+            "success": len(results["errors"]) == 0,
+            "deleted_count": total_deleted,
+            "drive_deleted": results["drive_deleted"],
+            "local_deleted": results["local_deleted"],
+            "errors": results["errors"] if results["errors"] else None,
+            "message": f"Cleaned up {total_deleted} video(s) ({results['drive_deleted']} from Drive, {results['local_deleted']} local)"
+        }
+
+    except Exception as e:
+        logger.error(f"Video cleanup failed: {e}")
+        return {"success": False, "error": str(e), "deleted_count": 0}
 
 # ============================================================================
 # TOOL IMPLEMENTATIONS (Original webhook functionality)
