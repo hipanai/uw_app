@@ -1349,16 +1349,15 @@ async def api_update_proposal(
         "message": "Proposal updated"
     }
 
-# Check for Apify-based submitter (uw_app_assist)
+# Apify-based submitter (disabled - big-brain.io is a paid rental actor)
+# To re-enable: set USE_APIFY_SUBMITTER = True and ensure credentials are in .env
+# For now, using Playwright-based submitter which runs locally
+USE_APIFY_SUBMITTER = False
 try:
-    from uw_app_assist.submitter import submit_application as apify_submit_application
     from uw_app_assist.submitter import embed_attachment_links
-    USE_APIFY_SUBMITTER = True
-    logger.info("Apify submitter (uw_app_assist) available")
-    print(">>> USE_APIFY_SUBMITTER = True (Apify actor will be used for submissions)")
-except ImportError as e:
-    USE_APIFY_SUBMITTER = False
-    print(f">>> USE_APIFY_SUBMITTER = False (ImportError: {e})")
+    logger.info("Playwright submitter active (Apify submitter disabled)")
+except ImportError:
+    embed_attachment_links = None
 
 
 @app.post("/api/approvals/{job_id}/submit")
