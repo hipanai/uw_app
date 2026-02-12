@@ -68,7 +68,7 @@ def scrape_upwork_jobs(
     """
     # Build actor input using the correct flash_mage schema
     input_data = {
-        "maxItems": limit,
+        "limit": limit,
         "sort": sort,
         "hourly": True,
         "fixed": True,
