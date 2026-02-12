@@ -37,6 +37,11 @@ import secrets
 import re
 import uuid
 from pathlib import Path
+
+# Add uw_app root to path for uw_app_assist package
+_uw_app_root = Path(__file__).parent.parent
+if str(_uw_app_root) not in sys.path:
+    sys.path.insert(0, str(_uw_app_root))
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict
@@ -1350,8 +1355,10 @@ try:
     from uw_app_assist.submitter import embed_attachment_links
     USE_APIFY_SUBMITTER = True
     logger.info("Apify submitter (uw_app_assist) available")
-except ImportError:
+    print(">>> USE_APIFY_SUBMITTER = True (Apify actor will be used for submissions)")
+except ImportError as e:
     USE_APIFY_SUBMITTER = False
+    print(f">>> USE_APIFY_SUBMITTER = False (ImportError: {e})")
 
 
 @app.post("/api/approvals/{job_id}/submit")
