@@ -1349,15 +1349,15 @@ async def api_update_proposal(
         "message": "Proposal updated"
     }
 
-# Apify-based submitter (disabled - big-brain.io is a paid rental actor)
-# To re-enable: set USE_APIFY_SUBMITTER = True and ensure credentials are in .env
-# For now, using Playwright-based submitter which runs locally
-USE_APIFY_SUBMITTER = False
+# Apify-based submitter (big-brain.io/upwork-application)
 try:
+    from uw_app_assist.submitter import submit_application as apify_submit_application
     from uw_app_assist.submitter import embed_attachment_links
-    logger.info("Playwright submitter active (Apify submitter disabled)")
-except ImportError:
-    embed_attachment_links = None
+    USE_APIFY_SUBMITTER = True
+    logger.info("Apify submitter (big-brain.io) active")
+except ImportError as e:
+    USE_APIFY_SUBMITTER = False
+    logger.warning(f"Apify submitter not available: {e}")
 
 
 @app.post("/api/approvals/{job_id}/submit")
