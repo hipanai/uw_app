@@ -112,21 +112,20 @@ def submit_application(
         return result
 
     # Build actor input (matches big-brain.io/upwork-application schema)
+    default_answer = UPWORK_DEFAULT_ANSWER or "Yes, I'm available. Let's discuss on a call."
     actor_input = {
         "startUrls": [{"url": apply_url}],
         "username": UPWORK_USERNAME,
         "password": UPWORK_PASSWORD,
         "coverLetter": proposal_text,
         "boostProposal": should_boost,
+        "defaultAnswer": default_answer,
+        "securityQuestion": default_answer,
         "autoRefill": False,
         "debugMode": False,
         "ignoreDuplicateProposals": False,
         "testMode": test_mode,
     }
-
-    if UPWORK_DEFAULT_ANSWER:
-        actor_input["securityQuestion"] = UPWORK_DEFAULT_ANSWER
-        actor_input["defaultAnswer"] = UPWORK_DEFAULT_ANSWER
 
     if UPWORK_PROXY_GROUP:
         actor_input["proxyConfig"] = {
