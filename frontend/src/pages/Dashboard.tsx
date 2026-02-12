@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
+import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, updateProposal, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
 import type { VideoGenerationStatus } from '@/api/types';
 import type { Job, JobStatsResponse, JobStatus } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
@@ -65,6 +65,9 @@ export function Dashboard() {
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [editingProposalJobId, setEditingProposalJobId] = useState<string | null>(null);
+  const [editedProposalText, setEditedProposalText] = useState('');
+  const [savingProposal, setSavingProposal] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const videoLogEndRef = useRef<HTMLDivElement>(null);
 
@@ -434,6 +437,33 @@ export function Dashboard() {
       alert('Failed to start submission. Check if the job is approved and has all required data.');
     } finally {
       setSubmitting(null);
+    }
+  };
+
+  // Handle editing proposal text
+  const handleEditProposal = (jobId: string, currentText: string) => {
+    setEditingProposalJobId(jobId);
+    setEditedProposalText(currentText || '');
+  };
+
+  const handleCancelEditProposal = () => {
+    setEditingProposalJobId(null);
+    setEditedProposalText('');
+  };
+
+  const handleSaveProposal = async (jobId: string) => {
+    setSavingProposal(true);
+    try {
+      await updateProposal(jobId, editedProposalText);
+      // Update local state
+      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, proposal_text: editedProposalText } : j));
+      setEditingProposalJobId(null);
+      setEditedProposalText('');
+    } catch (err) {
+      console.error('Failed to save proposal:', err);
+      alert('Failed to save proposal. Please try again.');
+    } finally {
+      setSavingProposal(false);
     }
   };
 
@@ -1126,18 +1156,73 @@ export function Dashboard() {
                                 </div>
                               </div>
                             )}
-                            {/* Proposal Text Preview */}
-                            {job.proposal_text && (
+                            {/* Proposal Text Preview/Edit */}
+                            {(job.proposal_text || editingProposalJobId === job.job_id) && (
                               <div>
-                                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-500" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                                  </svg>
-                                  Proposal Text
+                                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2 justify-between">
+                                  <span className="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-500" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                    </svg>
+                                    Proposal Text
+                                  </span>
+                                  {editingProposalJobId !== job.job_id && job.status === 'approved' && (
+                                    <button
+                                      onClick={() => handleEditProposal(job.job_id!, job.proposal_text || '')}
+                                      className="text-xs px-2 py-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-200 dark:hover:bg-indigo-800 flex items-center gap-1"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                      </svg>
+                                      Edit
+                                    </button>
+                                  )}
                                 </h4>
-                                <div className="bg-white dark:bg-gray-800 p-3 rounded border dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap max-h-60 overflow-y-auto">
-                                  {job.proposal_text}
-                                </div>
+                                {editingProposalJobId === job.job_id ? (
+                                  <div className="space-y-2">
+                                    <textarea
+                                      value={editedProposalText}
+                                      onChange={(e) => setEditedProposalText(e.target.value)}
+                                      className="w-full h-60 p-3 rounded border dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 resize-y"
+                                      placeholder="Enter proposal text..."
+                                    />
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => handleSaveProposal(job.job_id!)}
+                                        disabled={savingProposal}
+                                        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-sm flex items-center gap-1"
+                                      >
+                                        {savingProposal ? (
+                                          <>
+                                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Saving...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                            Save
+                                          </>
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={handleCancelEditProposal}
+                                        disabled={savingProposal}
+                                        className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 text-sm"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="bg-white dark:bg-gray-800 p-3 rounded border dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap max-h-60 overflow-y-auto">
+                                    {job.proposal_text}
+                                  </div>
+                                )}
                               </div>
                             )}
                             {/* Score Reasoning */}

@@ -627,11 +627,15 @@ def upload_pdf_to_drive(pdf_path: Path, drive_service) -> Optional[str]:
         return None
 
 
+# Google Drive folder for composed videos
+DRIVE_VIDEO_FOLDER_ID = "1Pfy0VGo5qVrutyu-vf9EWA00ddeND7Wh"
+
+
 def upload_video_to_drive(video_path: Path, drive_service, auto_delete_days: int = 30) -> Optional[str]:
     """Upload video to Google Drive and return public URL.
 
-    Sets a description with deletion date for cleanup tracking.
-    Videos are automatically scheduled for deletion after auto_delete_days.
+    Uploads to the designated video folder and sets a description with
+    deletion date for cleanup tracking.
 
     Args:
         video_path: Path to the local video file
@@ -657,7 +661,8 @@ def upload_video_to_drive(video_path: Path, drive_service, auto_delete_days: int
         file_metadata = {
             'name': video_path.name,
             'mimeType': 'video/mp4',
-            'description': f'Auto-delete after: {delete_date_str}'
+            'description': f'Auto-delete after: {delete_date_str}',
+            'parents': [DRIVE_VIDEO_FOLDER_ID]  # Upload to designated folder
         }
 
         media = MediaFileUpload(str(video_path), mimetype='video/mp4', resumable=True)
@@ -678,8 +683,8 @@ def upload_video_to_drive(video_path: Path, drive_service, auto_delete_days: int
             fields='id'
         ).execute()
 
-        # Prefer direct download link for video embedding, fallback to view link
-        video_url = file.get('webContentLink') or file.get('webViewLink') or f"https://drive.google.com/file/d/{file_id}/view"
+        # Use view link for browser playback (not download link)
+        video_url = file.get('webViewLink') or f"https://drive.google.com/file/d/{file_id}/view"
         logger.info(f"Video public URL: {video_url}")
 
         return video_url
@@ -697,7 +702,7 @@ def cleanup_expired_drive_videos(drive_service, folder_id: Optional[str] = None)
 
     Args:
         drive_service: Google Drive API service
-        folder_id: Optional folder to limit search (searches all if None)
+        folder_id: Optional folder to limit search (defaults to DRIVE_VIDEO_FOLDER_ID)
 
     Returns:
         Number of files deleted
@@ -705,13 +710,14 @@ def cleanup_expired_drive_videos(drive_service, folder_id: Optional[str] = None)
     if not drive_service:
         return 0
 
+    # Default to the designated video folder
+    target_folder = folder_id or DRIVE_VIDEO_FOLDER_ID
+
     try:
         today = datetime.now().strftime('%Y-%m-%d')
 
-        # Search for video files with auto-delete description
-        query = "mimeType='video/mp4' and description contains 'Auto-delete after:'"
-        if folder_id:
-            query += f" and '{folder_id}' in parents"
+        # Search for video files with auto-delete description in the target folder
+        query = f"mimeType='video/mp4' and description contains 'Auto-delete after:' and '{target_folder}' in parents"
 
         results = drive_service.files().list(
             q=query,

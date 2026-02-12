@@ -222,7 +222,7 @@ def generate_proposal(job: dict, client: anthropic.Anthropic, contact_info: dict
     # Format greeting based on contact discovery
     greeting = format_greeting(contact_info) if contact_info else "Hey"
 
-    prompt = f"""Write a personalized project proposal for this Upwork job. Write as Nick - first person, conversational, direct.
+    prompt = f"""Write a personalized project proposal for this Upwork job. Write as Clyde - first person, conversational, direct, like a real human talking.
 
 JOB DETAILS:
 Title: {job['title']}
@@ -256,12 +256,18 @@ Timeline
 
 [Realistic estimate, conversational tone]
 
+CLOSING (use one of these conversational sign-offs, pick what feels natural):
+- "Hey, my name is Clyde and I'd love to jump on a quick call to discuss this in more detail. Let me know what works for you!"
+- "Anyway, I'm Clyde - would love to chat more about this if you're interested. Just shoot me a message!"
+- "That's the gist of it. I'm Clyde, happy to hop on a call whenever works for you to dig into the details."
+
 TONE RULES:
 - First person ("I would...", "Here's how I'd...")
 - Direct and confident, not salesy
-- Like you're talking to a peer, not pitching
+- Like you're talking to a peer over coffee, not pitching
 - Specific technical details, no fluff
 - Use plain text with clear section headers (no markdown symbols like ** or #)
+- Sign off as Clyde with a natural, human-sounding closing (NOT "Best regards" or "Sincerely")
 - Total ~300 words
 
 Return ONLY the proposal text."""
