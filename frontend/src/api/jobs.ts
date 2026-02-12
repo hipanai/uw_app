@@ -91,6 +91,13 @@ export const submitJob = async (jobId: string): Promise<ApprovalResponse> => {
   return response.data;
 };
 
+export const dismissSubmission = async (jobId: string): Promise<{ success: boolean }> => {
+  const response = await apiClient.delete<{ success: boolean }>(
+    `/submissions/${encodeURIComponent(jobId)}`
+  );
+  return response.data;
+};
+
 // Admin API
 export const getConfig = async (): Promise<ConfigResponse> => {
   const response = await apiClient.get<ConfigResponse>('/admin/config');
@@ -220,7 +227,7 @@ export const deleteJobsBulk = async (jobIds: string[]): Promise<BulkDeleteRespon
 // Submission Status API
 export interface SubmissionStatus {
   job_id: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'error';
   stage: string;
   started_at: string;
   updated_at?: string;

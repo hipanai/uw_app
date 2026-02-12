@@ -1623,6 +1623,27 @@ async def api_get_active_submissions(user: dict = Depends(get_current_user)):
     }
     return {"submissions": active, "count": len(active)}
 
+@app.delete("/api/submissions/{job_id}")
+async def api_dismiss_submission(job_id: str, user: dict = Depends(get_current_user)):
+    """Dismiss/clear a submission from the active queue."""
+    if job_id in SUBMISSION_QUEUE:
+        del SUBMISSION_QUEUE[job_id]
+        return {"success": True, "message": "Submission dismissed"}
+    raise HTTPException(status_code=404, detail="Submission not found")
+
+@app.delete("/api/submissions/clear-all")
+async def api_clear_all_submissions(user: dict = Depends(get_current_user)):
+    """Clear all completed/failed submissions from the queue."""
+    cleared = 0
+    to_remove = [
+        job_id for job_id, status in SUBMISSION_QUEUE.items()
+        if status.get("status") in ("completed", "failed", "error")
+    ]
+    for job_id in to_remove:
+        del SUBMISSION_QUEUE[job_id]
+        cleared += 1
+    return {"success": True, "cleared": cleared}
+
 # Video generation status endpoints
 @app.get("/api/video-generation/status/{job_id}")
 async def api_get_video_generation_status(job_id: str, user: dict = Depends(get_current_user)):

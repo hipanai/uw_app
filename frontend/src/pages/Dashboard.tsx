@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, updateProposal, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
+import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, updateProposal, dismissSubmission, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
 import type { VideoGenerationStatus } from '@/api/types';
 import type { Job, JobStatsResponse, JobStatus } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
@@ -628,9 +628,31 @@ export function Dashboard() {
                         Stage: {submission.stage}
                       </span>
                     </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Started: {new Date(submission.started_at).toLocaleTimeString()}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        Started: {new Date(submission.started_at).toLocaleTimeString()}
+                      </span>
+                      {(submission.status === 'failed' || submission.status === 'completed' || submission.status === 'error') && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await dismissSubmission(submission.job_id);
+                              setActiveSubmissions(prev => {
+                                const updated = { ...prev };
+                                delete updated[submission.job_id];
+                                return updated;
+                              });
+                            } catch (err) {
+                              console.error('Failed to dismiss:', err);
+                            }
+                          }}
+                          className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded"
+                          title="Dismiss"
+                        >
+                          Dismiss
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Log Output */}
