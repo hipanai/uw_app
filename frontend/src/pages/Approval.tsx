@@ -287,10 +287,10 @@ export function Approval() {
                   )}
                 </div>
 
-                {/* Proposal Editor */}
+                {/* Cover Letter Editor */}
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                   <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-semibold dark:text-white">Proposal</h3>
+                    <h3 className="font-semibold dark:text-white">Cover Letter</h3>
                     <button
                       onClick={handleSaveProposal}
                       disabled={actionLoading === 'save' || editedProposal === selectedJob.proposal_text}
@@ -303,7 +303,7 @@ export function Approval() {
                     value={editedProposal}
                     onChange={(e) => setEditedProposal(e.target.value)}
                     className="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="No proposal generated yet"
+                    placeholder="No cover letter generated yet"
                   />
                 </div>
 

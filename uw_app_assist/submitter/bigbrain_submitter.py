@@ -111,31 +111,33 @@ def submit_application(
         result.error = "UPWORK_USERNAME and UPWORK_PASSWORD must be set in .env"
         return result
 
-    # Build actor input
+    # Build actor input (matches big-brain.io/upwork-application schema)
     actor_input = {
-        "url": apply_url,
+        "startUrls": [{"url": apply_url}],
         "username": UPWORK_USERNAME,
         "password": UPWORK_PASSWORD,
         "coverLetter": proposal_text,
-        "boost": should_boost,
+        "boostProposal": should_boost,
+        "autoRefill": False,
+        "debugMode": False,
+        "ignoreDuplicateProposals": False,
+        "testMode": test_mode,
     }
 
-    if UPWORK_FREELANCER_NAME:
-        actor_input["freelancerName"] = UPWORK_FREELANCER_NAME
-
     if UPWORK_DEFAULT_ANSWER:
+        actor_input["securityQuestion"] = UPWORK_DEFAULT_ANSWER
         actor_input["defaultAnswer"] = UPWORK_DEFAULT_ANSWER
 
     if UPWORK_PROXY_GROUP:
-        actor_input["proxyConfiguration"] = {
+        actor_input["proxyConfig"] = {
             "useApifyProxy": True,
             "apifyProxyGroups": [UPWORK_PROXY_GROUP],
         }
-
-    if test_mode:
-        actor_input["testMode"] = True
+    else:
+        actor_input["proxyConfig"] = {"useApifyProxy": True}
 
     logger.info(f"Submitting application for job {job_id} via big-brain.io actor")
+    logger.info(f"Actor input: {actor_input}")
 
     try:
         items = run_actor(
