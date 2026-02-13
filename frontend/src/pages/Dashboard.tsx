@@ -67,6 +67,9 @@ export function Dashboard() {
   const [savingProposal, setSavingProposal] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
+  // Statuses that belong on the Approval page, not Dashboard
+  const APPROVAL_PAGE_STATUSES = ['pending_approval', 'approved', 'submitted'];
+
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
@@ -78,7 +81,11 @@ export function Dashboard() {
         }),
         getJobStats(),
       ]);
-      setJobs(jobsRes.jobs);
+      // Filter out jobs that belong on the Approval page (unless specifically filtered)
+      const filteredJobs = statusFilter
+        ? jobsRes.jobs  // If user explicitly filters by status, show all matching
+        : jobsRes.jobs.filter(j => !APPROVAL_PAGE_STATUSES.includes(j.status || ''));
+      setJobs(filteredJobs);
       setStats(statsRes);
     } catch (err) {
       console.error('Failed to fetch data:', err);
