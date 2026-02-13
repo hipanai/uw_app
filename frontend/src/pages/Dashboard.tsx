@@ -277,26 +277,23 @@ export function Dashboard() {
   const handleProcessSelected = async () => {
     if (selectedJobs.size === 0) return;
 
-    // Filter to only unscored jobs
-    const unscoredSelected = jobs
-      .filter(j => selectedJobs.has(j.job_id || '') && j.fit_score == null)
+    // Get all selected job IDs
+    const selectedJobIds = jobs
+      .filter(j => selectedJobs.has(j.job_id || ''))
       .map(j => j.job_id)
       .filter(Boolean) as string[];
 
-    if (unscoredSelected.length === 0) {
-      alert('No unscored jobs selected. Only jobs without a score can be processed.');
-      return;
-    }
+    if (selectedJobIds.length === 0) return;
 
-    if (!confirm(`Process ${unscoredSelected.length} job(s) through the pipeline?`)) return;
+    if (!confirm(`Process ${selectedJobIds.length} job(s) through the pipeline? (Score → Extract → Generate → Approval)`)) return;
 
     setProcessing(true);
     try {
-      const result = await processJobs(unscoredSelected);
+      const result = await processJobs(selectedJobIds);
       alert(`Pipeline started: ${result.message}`);
       // Update job statuses locally
       setJobs(jobs.map(j =>
-        unscoredSelected.includes(j.job_id || '') ? { ...j, status: 'scoring' as JobStatus } : j
+        selectedJobIds.includes(j.job_id || '') ? { ...j, status: 'scoring' as JobStatus } : j
       ));
       setSelectedJobs(new Set());
       // Enable auto-refresh to track progress
@@ -308,9 +305,6 @@ export function Dashboard() {
       setProcessing(false);
     }
   };
-
-  // Check if any selected jobs are unscored (processable)
-  const hasUnscoredSelected = jobs.some(j => selectedJobs.has(j.job_id || '') && j.fit_score == null);
 
   // Handle continuing processing for filtered jobs (set score to 90 and move to pending_approval)
   const handleContinueProcessing = async (jobId: string) => {
@@ -737,15 +731,13 @@ export function Dashboard() {
                 <option key={s} value={s}>{STATUS_LABELS[s]}</option>
               ))}
             </select>
-            {hasUnscoredSelected && (
-              <button
-                onClick={handleProcessSelected}
-                disabled={processing || deleting}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {processing ? 'Starting...' : 'Process Selected'}
-              </button>
-            )}
+            <button
+              onClick={handleProcessSelected}
+              disabled={processing || deleting}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {processing ? 'Starting...' : `Process Selected (${selectedJobs.size})`}
+            </button>
             <button
               onClick={() => handleDeleteSelected()}
               disabled={deleting || processing}
