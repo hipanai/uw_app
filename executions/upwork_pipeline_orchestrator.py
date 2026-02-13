@@ -743,11 +743,18 @@ async def run_pipeline_async(
 
         if DEEP_EXTRACTOR_AVAILABLE and not mock:
             try:
+                # Use persistent browser profile if configured (helps bypass Cloudflare)
+                browser_profile = os.getenv("UPWORK_BROWSER_PROFILE")
+                if browser_profile:
+                    logger.info(f"Using browser profile: {browser_profile}")
+
                 # Extract job details AND capture full-page screenshots
                 extracted_jobs = await extract_jobs_batch_async(
                     [j.url for j in pipeline_jobs],
                     capture_screenshots=True,  # Capture screenshots for video composition
-                    max_concurrent=parallel
+                    max_concurrent=parallel,
+                    user_data_dir=browser_profile,
+                    headless=not bool(os.getenv("BROWSER_VISIBLE", ""))  # Set BROWSER_VISIBLE=1 to see browser
                 )
 
                 for job, extracted in zip(pipeline_jobs, extracted_jobs):

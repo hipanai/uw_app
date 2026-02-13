@@ -281,25 +281,84 @@ class UpworkDeepExtractor:
         await self._close_browser()
 
     async def _init_browser(self):
-        """Initialize Playwright browser."""
+        """Initialize Playwright browser with stealth options."""
         from playwright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
 
-        # Use persistent context if user_data_dir provided (for auth)
+        # Stealth browser args to avoid detection
+        stealth_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--disable-dev-shm-usage",
+            "--disable-browser-side-navigation",
+            "--disable-gpu",
+            "--no-first-run",
+            "--no-service-autorun",
+            "--password-store=basic",
+            "--use-mock-keychain",
+        ]
+
+        # Common browser options
+        browser_options = {
+            "headless": self.headless,
+            "args": stealth_args,
+        }
+
+        context_options = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "en-US",
+            "timezone_id": "America/New_York",
+        }
+
+        # Use persistent context if user_data_dir provided (for auth/cookies)
         if self.user_data_dir:
             self._context = await self._playwright.chromium.launch_persistent_context(
                 self.user_data_dir,
-                headless=self.headless,
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
+                **browser_options,
+                **context_options
             )
+            # Inject stealth scripts
+            await self._inject_stealth_scripts()
         else:
-            self._browser = await self._playwright.chromium.launch(headless=self.headless)
-            self._context = await self._browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
-            )
+            self._browser = await self._playwright.chromium.launch(**browser_options)
+            self._context = await self._browser.new_context(**context_options)
+            # Inject stealth scripts
+            await self._inject_stealth_scripts()
+
+    async def _inject_stealth_scripts(self):
+        """Inject scripts to mask automation detection."""
+        stealth_js = """
+        // Override webdriver property
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+
+        // Override plugins
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+        });
+
+        // Override languages
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en']
+        });
+
+        // Override chrome
+        window.chrome = {
+            runtime: {}
+        };
+
+        // Override permissions
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+        );
+        """
+        await self._context.add_init_script(stealth_js)
 
     async def _close_browser(self):
         """Close Playwright browser."""
