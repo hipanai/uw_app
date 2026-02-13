@@ -750,7 +750,7 @@ export function Dashboard() {
               </button>
             )}
             <button
-              onClick={handleDeleteSelected}
+              onClick={() => handleDeleteSelected()}
               disabled={deleting || processing}
               className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
