@@ -383,6 +383,45 @@ def invalidate_jobs_cache():
     global _JOBS_CACHE
     _JOBS_CACHE["last_fetch"] = None
 
+def insert_video_link_in_cover_letter(proposal_text: str, video_url: str) -> str:
+    """Insert video link into the cover letter after the greeting/first paragraph.
+
+    Adds a line like: "I also recorded a quick video walkthrough for you: [link]"
+    """
+    if not proposal_text or not video_url:
+        return proposal_text
+
+    # Don't insert if video link is already in the text
+    if video_url in proposal_text or "video walkthrough" in proposal_text.lower():
+        return proposal_text
+
+    # Find the end of the first paragraph (after greeting)
+    # Look for double newline or first sentence ending
+    lines = proposal_text.split('\n')
+
+    # Insert after the first non-empty line (greeting) or first paragraph
+    insert_line = f"\nI recorded a quick video walkthrough for you here: {video_url}\n"
+
+    # Find first substantial paragraph break
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # Skip empty lines at the start
+        if not stripped:
+            continue
+        # After finding content, look for next empty line or "I spent" line (intro)
+        if i > 0 and (not stripped or stripped.startswith("I spent") or stripped.startswith("Here's")):
+            # Insert before this line
+            lines.insert(i, insert_line.strip())
+            return '\n'.join(lines)
+
+    # If no good spot found, insert after first line
+    if len(lines) > 1:
+        lines.insert(1, insert_line.strip())
+        return '\n'.join(lines)
+
+    # Fallback: append to end
+    return proposal_text + insert_line
+
 def get_job_from_sheet(job_id: str) -> Optional[Dict]:
     """Get a single job from Google Sheet by ID."""
     jobs = get_all_jobs_from_sheet()
@@ -1310,6 +1349,22 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
                     # Update job in sheet with video URL
                     update_job_in_sheet(job_id, {"video_url": final_video_url})
                     add_video_generation_log(job_id, f"Video URL saved to job record")
+
+                    # Insert video link into cover letter if it's a cloud URL
+                    if final_video_url.startswith('http'):
+                        try:
+                            job_data_fresh = get_job_from_sheet(job_id)
+                            if job_data_fresh and job_data_fresh.get('proposal_text'):
+                                updated_proposal = insert_video_link_in_cover_letter(
+                                    job_data_fresh['proposal_text'],
+                                    final_video_url
+                                )
+                                if updated_proposal != job_data_fresh['proposal_text']:
+                                    update_job_in_sheet(job_id, {"proposal_text": updated_proposal})
+                                    add_video_generation_log(job_id, "Video link inserted into cover letter")
+                        except Exception as e:
+                            logger.warning(f"Failed to update cover letter with video link: {e}")
+
                     logger.info(f"Video generated for job {job_id}: {final_video_url}")
                 else:
                     add_video_generation_log(job_id, "Video generation returned no URL")
@@ -1903,6 +1958,24 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
                 add_video_generation_log(job_id, "Video generated successfully!")
                 update_video_generation_status(job_id, status="completed", stage="done", video_url=final_video_url)
                 update_job_in_sheet(job_id, {"video_url": final_video_url})
+
+                # Insert video link into cover letter if it's a cloud URL
+                if final_video_url.startswith('http'):
+                    try:
+                        job_data_fresh = get_job_from_sheet(job_id)
+                        if job_data_fresh and job_data_fresh.get('proposal_text'):
+                            updated_proposal = insert_video_link_in_cover_letter(
+                                job_data_fresh['proposal_text'],
+                                final_video_url
+                            )
+                            if updated_proposal != job_data_fresh['proposal_text']:
+                                update_job_in_sheet(job_id, {"proposal_text": updated_proposal})
+                                add_video_generation_log(job_id, "Video link inserted into cover letter")
+                                # Update job_data for auto-submit
+                                job_data['proposal_text'] = updated_proposal
+                    except Exception as e:
+                        logger.warning(f"[Auto] Failed to update cover letter with video link: {e}")
+
                 logger.info(f"[Auto] Video generated for job {job_id}: {final_video_url}")
 
                 # Auto-submit if in automatic mode

@@ -236,7 +236,7 @@ PROPOSAL FORMAT:
 
 I spent ~15 minutes putting this together for you. In short, it's how I would create your [2-4 word paraphrase of their system/need] end to end.
 
-I've worked with $MM companies like Anthropic (yes—that Anthropic) and I have a lot of experience designing/building similar workflows.
+I've worked with $MM companies and have a lot of experience designing and building similar workflows.
 
 Here's a step-by-step, along with my reasoning at every point:
 
