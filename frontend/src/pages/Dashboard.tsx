@@ -312,23 +312,20 @@ export function Dashboard() {
   // Check if any selected jobs are unscored (processable)
   const hasUnscoredSelected = jobs.some(j => selectedJobs.has(j.job_id || '') && j.fit_score == null);
 
-  // Handle continuing processing for filtered jobs (reset status and set score to 90)
+  // Handle continuing processing for filtered jobs (set score to 90 and move to pending_approval)
   const handleContinueProcessing = async (jobId: string) => {
-    if (!confirm('Continue processing this job? The fit score will be set to 90 and processing will resume.')) return;
+    if (!confirm('Override score and move to pending approval? The fit score will be set to 90.')) return;
 
     setProcessing(true);
     try {
-      // Reset status to 'new' and set fit_score to 90 (user override)
-      await updateJobStatus(jobId, 'new', 90);
-      // Then process it
-      const result = await processJobs([jobId], 0); // min_score 0 to not filter again
-      alert(`Processing started: ${result.message}`);
-      // Update local state with new score
-      setJobs(jobs.map(j => j.job_id === jobId ? { ...j, status: 'scoring' as JobStatus, fit_score: 90 } : j));
-      setAutoRefresh(true);
+      // Set fit_score to 90 and move directly to pending_approval
+      await updateJobStatus(jobId, 'pending_approval', 90);
+      alert('Job moved to pending approval with score 90');
+      // Update local state - job will disappear from Dashboard (goes to Approval page)
+      setJobs(jobs.filter(j => j.job_id !== jobId));
     } catch (err) {
       console.error('Failed to continue processing:', err);
-      alert('Failed to continue processing');
+      alert('Failed to update job');
     } finally {
       setProcessing(false);
     }
