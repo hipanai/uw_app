@@ -1309,7 +1309,7 @@
       "Run npm run dev",
       "Verify dev server starts on port 5173"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1322,7 +1322,7 @@
       "Create component with Tailwind classes",
       "Verify styles are applied correctly"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1335,7 +1335,7 @@
       "Import and render Button component",
       "Verify component renders with correct styling"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1349,7 +1349,7 @@
       "Make request to /api/health from frontend",
       "Verify request reaches FastAPI backend"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1363,7 +1363,7 @@
       "Navigate to /admin",
       "Verify each route renders correct page component"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1376,7 +1376,7 @@
       "Send POST with incorrect password",
       "Verify 401 response"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1391,7 +1391,7 @@
       "Send GET with invalid token",
       "Verify 401 response"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1404,7 +1404,7 @@
       "Send GET to /api/jobs with valid token",
       "Verify 200 response with jobs data"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1419,7 +1419,7 @@
       "Send GET with ?page=2&per_page=10",
       "Verify pagination works correctly"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1432,7 +1432,7 @@
       "Send GET to /api/jobs?status=submitted",
       "Verify all returned jobs have status submitted"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1445,7 +1445,7 @@
       "Send GET with non-matching search term",
       "Verify empty results"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1459,7 +1459,7 @@
       "Send GET with non-existent job_id",
       "Verify 404 response"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1473,7 +1473,7 @@
       "Verify response contains avg_fit_score",
       "Verify response contains today_processed count"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1486,7 +1486,7 @@
       "Verify response includes proposal_text",
       "Verify response includes video_url and pdf_url"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1500,7 +1500,7 @@
       "Verify job status changed to approved in sheet",
       "Verify approved_at timestamp is set"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1513,7 +1513,7 @@
       "Verify response shows success",
       "Verify job status changed to rejected in sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1526,7 +1526,7 @@
       "Verify response shows success",
       "Verify proposal_text updated in sheet"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1539,7 +1539,7 @@
       "Verify response indicates submission queued",
       "Verify submission workflow is triggered"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1552,7 +1552,7 @@
       "Verify API keys are masked (show only last 4 chars)",
       "Verify sheet IDs are partially masked"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1565,7 +1565,7 @@
       "Verify response shows status=started",
       "Verify pipeline orchestrator is invoked"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1578,7 +1578,7 @@
       "Verify response contains last_run timestamp",
       "Verify response contains last_result summary"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1593,7 +1593,7 @@
       "Send GET with ?limit=10",
       "Verify max 10 logs returned"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1607,7 +1607,7 @@
       "Verify response contains anthropic_configured boolean",
       "Verify response contains heygen_configured boolean"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1620,7 +1620,7 @@
       "Verify login button is visible",
       "Verify no errors in browser console"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1634,7 +1634,7 @@
       "Verify redirect to /dashboard",
       "Verify token stored in localStorage"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1648,7 +1648,7 @@
       "Verify error message is displayed",
       "Verify user stays on login page"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1662,7 +1662,7 @@
       "Navigate to /approval",
       "Verify redirect to /login"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1677,7 +1677,7 @@
       "Verify Admin link is present",
       "Verify Logout button is present"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1692,7 +1692,7 @@
       "Click Admin link",
       "Verify URL is /admin"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1705,7 +1705,7 @@
       "Verify token removed from localStorage",
       "Verify redirect to /login"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1719,7 +1719,7 @@
       "Verify jobs data is loaded from API",
       "Verify loading state shows while fetching"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1734,7 +1734,7 @@
       "Verify fit_score column shows score with color",
       "Verify budget column shows formatted budget"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1749,7 +1749,7 @@
       "View job with fit_score < 70",
       "Verify badge is red"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1764,7 +1764,7 @@
       "View job with status=approved",
       "Verify green badge with 'Approved' label"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1778,7 +1778,7 @@
       "Click on Score column header",
       "Verify jobs sorted by fit_score"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1792,7 +1792,7 @@
       "Verify new jobs loaded",
       "Verify page indicator updates"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1808,7 +1808,7 @@
       "Clear filter",
       "Verify all jobs shown"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1821,7 +1821,7 @@
       "Clear search input",
       "Verify all jobs shown again"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1836,7 +1836,7 @@
       "Click close button",
       "Verify modal closes"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1852,7 +1852,7 @@
       "Verify proposal text shown if available",
       "Verify links to doc, video, pdf if available"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1866,7 +1866,7 @@
       "Verify submitted today count card visible",
       "Verify average fit score card visible"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -1880,7 +1880,7 @@
       "Verify jobs sorted by fit_score descending",
       "Verify loading state shows while fetching"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1894,7 +1894,7 @@
       "Verify each job shows budget",
       "Verify each job shows proposal preview"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1907,7 +1907,7 @@
       "Verify Edit button visible",
       "Verify Reject button visible (red)"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1922,7 +1922,7 @@
       "Verify success toast/notification shown",
       "Verify job status updated to approved via API"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1936,7 +1936,7 @@
       "Verify job removed from queue",
       "Verify job status updated to rejected via API"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1949,7 +1949,7 @@
       "Verify current proposal text is loaded",
       "Verify textarea is editable"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1964,7 +1964,7 @@
       "Verify success notification shown",
       "Verify editor closes"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -1977,7 +1977,7 @@
       "Type additional text",
       "Verify character count updates"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -1992,7 +1992,7 @@
       "View job with proposal_doc_url",
       "Verify Doc link is clickable"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2005,7 +2005,7 @@
       "Verify environment variables displayed",
       "Verify sensitive values are masked"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2019,7 +2019,7 @@
       "Verify Slack configuration status shown",
       "Verify API configuration status shown"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2035,7 +2035,7 @@
       "Verify API call made",
       "Verify status updates to show running"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2049,7 +2049,7 @@
       "Verify timestamps are formatted",
       "Verify log levels are color-coded"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2063,7 +2063,7 @@
       "Select INFO filter",
       "Verify info logs shown"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "low"
   },
   {
@@ -2076,7 +2076,7 @@
       "Verify index.html exists",
       "Verify assets/ directory with JS/CSS bundles"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2090,7 +2090,7 @@
       "Verify React app loads",
       "Verify /assets/* files are served"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2106,7 +2106,7 @@
       "Navigate to http://localhost:8000/admin",
       "Verify React app loads"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2119,7 +2119,7 @@
       "Verify success/error/warning colors consistent",
       "Verify dark mode toggle works (if implemented)"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2133,7 +2133,7 @@
       "Verify forms are usable",
       "Verify buttons are tap-friendly"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2146,7 +2146,7 @@
       "Open job detail modal",
       "Verify loading state while fetching details"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2159,7 +2159,7 @@
       "Verify error message displayed",
       "Verify retry button available"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2173,7 +2173,7 @@
       "Verify 401 response",
       "Verify redirect to login"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2186,7 +2186,7 @@
       "Verify password not hardcoded",
       "Verify password only sent to API, never stored"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2199,7 +2199,7 @@
       "Send SQL injection attempt in search",
       "Verify no SQL errors exposed"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2212,7 +2212,7 @@
       "Measure time to interactive",
       "Verify under 2 seconds"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2224,7 +2224,7 @@
       "Measure response time",
       "Verify under 500ms for 100 jobs"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "medium"
   },
   {
@@ -2243,7 +2243,7 @@
       "Navigate back to dashboard",
       "Verify job shows approved status"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2259,7 +2259,7 @@
       "Verify changes saved before approval",
       "Verify job status is approved"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   },
   {
@@ -2276,7 +2276,7 @@
       "Navigate to dashboard",
       "Verify new jobs appear"
     ],
-    "passes": false,
+    "passes": true,
     "priority": "high"
   }
 ]

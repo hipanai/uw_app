@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getActiveVideoGenerations, getSubmissionMode, submitJob, approveJob, updateProposal, dismissSubmission, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
-import type { VideoGenerationStatus } from '@/api/types';
+import { getJobs, getJobStats, deleteJob, deleteJobsBulk, processJobs, updateJobStatus, updateJobStatusBulk, getActiveSubmissions, getSubmissionMode, submitJob, approveJob, updateProposal, dismissSubmission, type SubmissionStatus, type SubmissionModeResponse } from '@/api/jobs';
 import type { Job, JobStatsResponse, JobStatus } from '@/api/types';
 import { STATUS_COLORS, STATUS_LABELS, getScoreColor } from '@/lib/constants';
 import { formatBudget, truncateText } from '@/lib/utils';
@@ -58,8 +57,6 @@ export function Dashboard() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeSubmissions, setActiveSubmissions] = useState<Record<string, SubmissionStatus>>({});
   const [showSubmissions, setShowSubmissions] = useState(true);
-  const [activeVideoGens, setActiveVideoGens] = useState<VideoGenerationStatus[]>([]);
-  const [showVideoGens, setShowVideoGens] = useState(true);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [submissionMode, setSubmissionMode] = useState<SubmissionModeResponse | null>(null);
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
@@ -69,7 +66,6 @@ export function Dashboard() {
   const [editedProposalText, setEditedProposalText] = useState('');
   const [savingProposal, setSavingProposal] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const videoLogEndRef = useRef<HTMLDivElement>(null);
 
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -121,21 +117,6 @@ export function Dashboard() {
     }
   };
 
-  // Fetch active video generations
-  const fetchVideoGenerations = async () => {
-    try {
-      const result = await getActiveVideoGenerations();
-      setActiveVideoGens(Array.isArray(result.video_generations) ? result.video_generations : []);
-      // Auto-scroll to bottom of logs when new entries come in
-      if (videoLogEndRef.current) {
-        videoLogEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    } catch (err) {
-      console.error('Failed to fetch video generations:', err);
-      setActiveVideoGens([]);
-    }
-  };
-
   // Fetch submission mode
   const fetchSubmissionMode = async () => {
     try {
@@ -146,16 +127,14 @@ export function Dashboard() {
     }
   };
 
-  // Poll for submission and video generation updates
+  // Poll for submission updates
   useEffect(() => {
     fetchSubmissions(); // Initial fetch
-    fetchVideoGenerations(); // Initial fetch
     fetchSubmissionMode(); // Initial fetch
 
     const interval = setInterval(() => {
       fetchSubmissions();
-      fetchVideoGenerations();
-    }, 5000); // Poll every 5 seconds (reduced from 2s to avoid API quota issues)
+    }, 5000); // Poll every 5 seconds
 
     // Refresh mode less frequently
     const modeInterval = setInterval(() => {
@@ -171,11 +150,6 @@ export function Dashboard() {
   const activeSubmissionCount = Object.keys(activeSubmissions).length;
   const hasInProgressSubmissions = Object.values(activeSubmissions).some(
     s => s.status === 'pending' || s.status === 'in_progress'
-  );
-
-  const activeVideoGenCount = activeVideoGens.length;
-  const hasInProgressVideoGens = activeVideoGens.some(
-    v => v.status === 'pending' || v.status === 'in_progress'
   );
 
   const getModeIndicator = () => {
@@ -240,19 +214,35 @@ export function Dashboard() {
     }
   };
 
-  const handleDeleteSelected = async () => {
+  const handleDeleteSelected = async (force: boolean = false) => {
     if (selectedJobs.size === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedJobs.size} job(s)?`)) return;
+    if (!force && !confirm(`Are you sure you want to delete ${selectedJobs.size} job(s)?`)) return;
 
     setDeleting(true);
     try {
       const jobIds = Array.from(selectedJobs);
-      await deleteJobsBulk(jobIds);
+      await deleteJobsBulk(jobIds, force);
       setJobs(jobs.filter(j => !selectedJobs.has(j.job_id || '')));
       setSelectedJobs(new Set());
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to delete jobs:', err);
-      alert('Failed to delete jobs');
+      // Check if this is a protected jobs error
+      const axiosError = err as { response?: { status?: number; data?: { detail?: { message?: string; protected_jobs?: Array<{ title: string; status: string }> } } } };
+      if (axiosError.response?.status === 400 && axiosError.response?.data?.detail?.protected_jobs) {
+        const detail = axiosError.response.data.detail;
+        const protectedJobs = detail.protected_jobs || [];
+        const jobList = protectedJobs.map((j: { title: string; status: string }) => `• ${j.title} (${j.status})`).join('\n');
+        const confirmForce = confirm(
+          `Cannot delete ${protectedJobs.length} job(s) with protected status:\n\n${jobList}\n\nThese jobs are approved/submitted/pending approval.\n\nClick OK to delete them anyway, or Cancel to keep them.`
+        );
+        if (confirmForce) {
+          // Retry with force=true
+          await handleDeleteSelected(true);
+          return;
+        }
+      } else {
+        alert('Failed to delete jobs');
+      }
     } finally {
       setDeleting(false);
     }
@@ -685,109 +675,6 @@ export function Dashboard() {
                   {submission.result && submission.status === 'completed' && (
                     <div className="px-4 py-2 bg-green-50 text-green-700 text-sm">
                       <span className="font-medium">Result:</span> Proposal submitted successfully
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Active Video Generations Panel */}
-      {activeVideoGenCount > 0 && (
-        <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-          <button
-            onClick={() => setShowVideoGens(!showVideoGens)}
-            className="w-full px-4 py-3 flex items-center justify-between bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-sm font-bold ${hasInProgressVideoGens ? 'bg-purple-500 animate-pulse' : 'bg-green-500'}`}>
-                {activeVideoGenCount}
-              </span>
-              <span className="font-medium text-gray-700 dark:text-gray-200">
-                Video Generation
-                {hasInProgressVideoGens && <span className="ml-2 text-purple-600 text-sm">(generating)</span>}
-              </span>
-            </div>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className={`h-5 w-5 text-gray-500 transition-transform ${showVideoGens ? 'rotate-180' : ''}`}
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-
-          {showVideoGens && (
-            <div className="p-4 space-y-4 max-h-96 overflow-y-auto">
-              {activeVideoGens.map((videoGen) => (
-                <div key={videoGen.job_id} className="border rounded-lg overflow-hidden">
-                  {/* Video Gen Header */}
-                  <div className="px-4 py-2 bg-gray-50 dark:bg-gray-700 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                        videoGen.status === 'completed' ? 'bg-green-100 text-green-800' :
-                        videoGen.status === 'failed' ? 'bg-red-100 text-red-800' :
-                        videoGen.status === 'in_progress' ? 'bg-purple-100 text-purple-800' :
-                        'bg-blue-100 text-blue-800'
-                      }`}>
-                        {videoGen.status === 'in_progress' ? 'Generating' : videoGen.status}
-                      </span>
-                      <span className="text-sm text-gray-600 dark:text-gray-300">
-                        Job: {videoGen.job_id.slice(0, 15)}...
-                      </span>
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Stage: {videoGen.stage}
-                      </span>
-                    </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Started: {new Date(videoGen.started_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-
-                  {/* Log Output */}
-                  <div className="bg-gray-900 text-gray-100 p-3 font-mono text-xs max-h-40 overflow-y-auto">
-                    {videoGen.logs.length === 0 ? (
-                      <div className="text-gray-500 italic">Waiting for logs...</div>
-                    ) : (
-                      videoGen.logs.map((log, idx) => (
-                        <div key={idx} className={`py-0.5 ${
-                          log.includes('ERROR') || log.includes('Failed') ? 'text-red-400' :
-                          log.includes('SUCCESS') || log.includes('successfully') ? 'text-green-400' :
-                          log.includes('Starting') || log.includes('Generating') || log.includes('Calling') ? 'text-blue-400' :
-                          'text-gray-300'
-                        }`}>
-                          {log}
-                        </div>
-                      ))
-                    )}
-                    <div ref={videoLogEndRef} />
-                  </div>
-
-                  {/* Error Display */}
-                  {videoGen.error && (
-                    <div className="px-4 py-2 bg-red-50 text-red-700 text-sm">
-                      <span className="font-medium">Error:</span> {videoGen.error}
-                    </div>
-                  )}
-
-                  {/* Success with Video URL */}
-                  {videoGen.video_url && videoGen.status === 'completed' && (
-                    <div className="px-4 py-2 bg-green-50 flex items-center justify-between">
-                      <span className="text-green-700 text-sm font-medium">Video generated successfully!</span>
-                      <a
-                        href={getVideoUrl(videoGen.video_url, videoGen.job_id)!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-                        </svg>
-                        Watch Video
-                      </a>
                     </div>
                   )}
                 </div>

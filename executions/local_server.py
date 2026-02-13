@@ -1079,12 +1079,40 @@ async def api_get_job(job_id: str, user: dict = Depends(get_current_user)):
 
 class BulkDeleteRequest(BaseModel):
     job_ids: List[str]
+    force: bool = False  # Required to delete approved/submitted jobs
+
+# Protected statuses that require force=True to delete
+PROTECTED_STATUSES = {'approved', 'submitted', 'pending_approval'}
 
 @app.delete("/api/jobs/bulk")
 async def api_delete_jobs_bulk(request: BulkDeleteRequest, user: dict = Depends(get_current_user)):
-    """Delete multiple jobs by ID."""
+    """Delete multiple jobs by ID.
+
+    Jobs with approved/submitted/pending_approval status require force=True.
+    """
     if not request.job_ids:
         raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    # Check for protected jobs if force is not set
+    if not request.force:
+        jobs = get_all_jobs_from_sheet()
+        protected_jobs = []
+        for job in jobs:
+            if job.get('job_id') in request.job_ids and job.get('status') in PROTECTED_STATUSES:
+                protected_jobs.append({
+                    'job_id': job.get('job_id'),
+                    'title': job.get('title', 'Unknown')[:50],
+                    'status': job.get('status')
+                })
+
+        if protected_jobs:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": f"Cannot delete {len(protected_jobs)} job(s) with protected status (approved/submitted/pending_approval). Set force=true to override.",
+                    "protected_jobs": protected_jobs
+                }
+            )
 
     deleted_count = delete_jobs_from_sheet(request.job_ids)
 
@@ -1350,14 +1378,14 @@ async def api_update_proposal(
     }
 
 # Apify-based submitter (big-brain.io/upwork-application)
+# DISABLED: Actor's Bright Data proxy is failing (ERR_TUNNEL_CONNECTION_FAILED)
+# Using local Playwright submitter instead
+USE_APIFY_SUBMITTER = False
 try:
-    from uw_app_assist.submitter import submit_application as apify_submit_application
     from uw_app_assist.submitter import embed_attachment_links
-    USE_APIFY_SUBMITTER = True
-    logger.info("Apify submitter (big-brain.io) active")
-except ImportError as e:
-    USE_APIFY_SUBMITTER = False
-    logger.warning(f"Apify submitter not available: {e}")
+except ImportError:
+    embed_attachment_links = None
+logger.info("Playwright submitter active (Apify disabled due to proxy issues)")
 
 
 @app.post("/api/approvals/{job_id}/submit")

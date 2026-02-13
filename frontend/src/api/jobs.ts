@@ -217,9 +217,20 @@ export const deleteJob = async (jobId: string): Promise<DeleteJobResponse> => {
   return response.data;
 };
 
-export const deleteJobsBulk = async (jobIds: string[]): Promise<BulkDeleteResponse> => {
+export interface ProtectedJobInfo {
+  job_id: string;
+  title: string;
+  status: string;
+}
+
+export interface BulkDeleteError {
+  message: string;
+  protected_jobs: ProtectedJobInfo[];
+}
+
+export const deleteJobsBulk = async (jobIds: string[], force: boolean = false): Promise<BulkDeleteResponse> => {
   const response = await apiClient.delete<BulkDeleteResponse>('/jobs/bulk', {
-    data: { job_ids: jobIds }
+    data: { job_ids: jobIds, force }
   });
   return response.data;
 };
