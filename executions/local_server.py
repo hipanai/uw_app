@@ -1314,6 +1314,9 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
                 update_video_generation_status(job_id, stage="heygen_processing")
 
                 video_path = loop.run_until_complete(run_video_gen())
+                is_local = video_path and not video_path.startswith('http')
+                is_remote = video_path and video_path.startswith('http')
+                add_video_generation_log(job_id, f"Video gen returned: {'local file' if is_local else 'remote URL' if is_remote else 'None'}")
 
                 if video_path:
                     # Upload video to Drive for a permanent URL
@@ -1943,6 +1946,9 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
             update_video_generation_status(job_id, stage="heygen_processing")
 
             video_path = loop.run_until_complete(run_video_gen())
+            is_local = video_path and not video_path.startswith('http')
+            is_remote = video_path and video_path.startswith('http')
+            add_video_generation_log(job_id, f"Video gen returned: {'local file' if is_local else 'remote URL' if is_remote else 'None'}")
 
             if video_path:
                 # Upload video to Drive for a permanent URL

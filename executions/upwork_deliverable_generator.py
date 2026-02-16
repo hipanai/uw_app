@@ -901,6 +901,7 @@ async def generate_heygen_video_async(
 
         # Build job dict for script generation
         job_dict = {
+            'job_id': job.job_id,
             'title': job.title,
             'description': job.description,
             'skills': job.skills,
@@ -936,6 +937,7 @@ async def generate_heygen_video_async(
             return None
 
         avatar_video_url = result.video_url
+        logger.info(f"HeyGen avatar video URL: {avatar_video_url[:80]}...")
 
         # Prepare backgrounds for composition
         job_screenshot = screenshot_path
@@ -946,7 +948,7 @@ async def generate_heygen_video_async(
             try:
                 from upwork_html_renderer import render_job_and_proposal
 
-                logger.info("Generating job listing and proposal backgrounds...")
+                logger.info(f"Generating job listing and proposal backgrounds (CWD={os.getcwd()})...")
 
                 # Prepare output path for rendered screenshots
                 render_output_dir = Path(".tmp/rendered_jobs")
@@ -963,18 +965,21 @@ async def generate_heygen_video_async(
                 if render_result.success:
                     job_screenshot = render_result.job_screenshot_path
                     proposal_screenshot = render_result.proposal_screenshot_path
-                    logger.info(f"Generated job background: {job_screenshot}")
+                    logger.info(f"Generated job background: {job_screenshot} (exists={os.path.exists(job_screenshot)})")
                     if proposal_screenshot:
-                        logger.info(f"Generated proposal background: {proposal_screenshot}")
+                        logger.info(f"Generated proposal background: {proposal_screenshot} (exists={os.path.exists(proposal_screenshot)})")
                 else:
                     logger.warning(f"HTML rendering failed: {render_result.error}")
 
             except ImportError as e:
                 logger.warning(f"HTML renderer not available: {e}")
             except Exception as e:
-                logger.warning(f"HTML rendering failed: {e}")
+                logger.warning(f"HTML rendering failed: {e}", exc_info=True)
+        else:
+            logger.info(f"Skipping HTML rendering (compose_with_screenshot={compose_with_screenshot})")
 
         # Compose video with transition if we have both views
+        logger.info(f"Composition check: job_screenshot={job_screenshot}, proposal_screenshot={proposal_screenshot}")
         if job_screenshot and proposal_screenshot and os.path.exists(job_screenshot) and os.path.exists(proposal_screenshot):
             try:
                 from upwork_video_composer import compose_video_with_transition_async
@@ -1037,9 +1042,10 @@ async def generate_heygen_video_async(
                     return avatar_video_url
 
             except Exception as e:
-                logger.warning(f"Fallback composition failed: {e}")
+                logger.warning(f"Fallback composition failed: {e}", exc_info=True)
                 return avatar_video_url
 
+        logger.info(f"No composition performed, returning raw avatar URL")
         return avatar_video_url
 
     except ImportError as e:
