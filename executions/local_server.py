@@ -1316,32 +1316,39 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
                 video_path = loop.run_until_complete(run_video_gen())
 
                 if video_path:
-                    # Check if it's a local file that needs uploading to Drive
+                    # Upload video to Drive for a permanent URL
                     final_video_url = video_path
-                    if video_path and not video_path.startswith('http'):
-                        # Local composed video - upload to Google Drive
-                        add_video_generation_log(job_id, "Uploading composed video to Google Drive...")
-                        update_video_generation_status(job_id, stage="uploading_to_drive")
-                        try:
-                            drive_service, _, _ = get_google_services(mock=False)
-                            if drive_service:
-                                local_path = Path(video_path)
-                                if local_path.exists():
-                                    cloud_url = upload_video_to_drive(local_path, drive_service, auto_delete_days=30)
-                                    if cloud_url:
-                                        final_video_url = cloud_url
-                                        # Clean up local file after successful upload
-                                        local_path.unlink(missing_ok=True)
-                                        add_video_generation_log(job_id, f"Video uploaded to Drive (30-day auto-delete)")
-                                    else:
-                                        add_video_generation_log(job_id, "Drive upload failed, using local path")
-                                else:
-                                    add_video_generation_log(job_id, f"Local video not found: {video_path}")
+                    add_video_generation_log(job_id, "Uploading video to Google Drive...")
+                    update_video_generation_status(job_id, stage="uploading_to_drive")
+                    try:
+                        drive_service, _, _ = get_google_services(mock=False)
+                        if drive_service:
+                            if video_path.startswith('http'):
+                                # Remote URL (e.g. HeyGen signed URL) - download first
+                                import urllib.request
+                                tmp_dir = Path(".tmp/composed_videos")
+                                tmp_dir.mkdir(parents=True, exist_ok=True)
+                                local_path = tmp_dir / f"download_{job_id}.mp4"
+                                add_video_generation_log(job_id, "Downloading video from remote URL...")
+                                urllib.request.urlretrieve(video_path, str(local_path))
                             else:
-                                add_video_generation_log(job_id, "Google Drive service unavailable, using local path")
-                        except Exception as upload_err:
-                            add_video_generation_log(job_id, f"Drive upload error: {upload_err}")
-                            logger.warning(f"Failed to upload video to Drive: {upload_err}")
+                                local_path = Path(video_path)
+
+                            if local_path.exists():
+                                cloud_url = upload_video_to_drive(local_path, drive_service, auto_delete_days=30)
+                                if cloud_url:
+                                    final_video_url = cloud_url
+                                    local_path.unlink(missing_ok=True)
+                                    add_video_generation_log(job_id, f"Video uploaded to Drive (30-day auto-delete)")
+                                else:
+                                    add_video_generation_log(job_id, "Drive upload failed, keeping original URL")
+                            else:
+                                add_video_generation_log(job_id, f"Local video not found: {video_path}")
+                        else:
+                            add_video_generation_log(job_id, "Google Drive service unavailable")
+                    except Exception as upload_err:
+                        add_video_generation_log(job_id, f"Drive upload error: {upload_err}")
+                        logger.warning(f"Failed to upload video to Drive: {upload_err}")
 
                     add_video_generation_log(job_id, f"Video generated successfully!")
                     update_video_generation_status(job_id, status="completed", stage="done", video_url=final_video_url)
@@ -1350,8 +1357,8 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
                     update_job_in_sheet(job_id, {"video_url": final_video_url})
                     add_video_generation_log(job_id, f"Video URL saved to job record")
 
-                    # Insert video link into cover letter if it's a cloud URL
-                    if final_video_url.startswith('http'):
+                    # Insert video link into cover letter if it's a permanent Drive URL
+                    if 'drive.google.com' in final_video_url:
                         try:
                             job_data_fresh = get_job_from_sheet(job_id)
                             if job_data_fresh and job_data_fresh.get('proposal_text'):
@@ -1364,6 +1371,8 @@ async def api_approve_job(job_id: str, user: dict = Depends(get_current_user)):
                                     add_video_generation_log(job_id, "Video link inserted into cover letter")
                         except Exception as e:
                             logger.warning(f"Failed to update cover letter with video link: {e}")
+                    elif final_video_url.startswith('http'):
+                        add_video_generation_log(job_id, f"Skipping cover letter insert - not a permanent URL")
 
                     logger.info(f"Video generated for job {job_id}: {final_video_url}")
                 else:
@@ -1936,31 +1945,46 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
             video_path = loop.run_until_complete(run_video_gen())
 
             if video_path:
-                # Upload to Google Drive if local file
+                # Upload video to Drive for a permanent URL
                 final_video_url = video_path
-                if video_path and not video_path.startswith('http'):
-                    add_video_generation_log(job_id, "Uploading composed video to Google Drive...")
-                    update_video_generation_status(job_id, stage="uploading_to_drive")
-                    try:
-                        drive_service, _, _ = get_google_services(mock=False)
-                        if drive_service:
+                add_video_generation_log(job_id, "Uploading video to Google Drive...")
+                update_video_generation_status(job_id, stage="uploading_to_drive")
+                try:
+                    drive_service, _, _ = get_google_services(mock=False)
+                    if drive_service:
+                        if video_path.startswith('http'):
+                            # Remote URL (e.g. HeyGen signed URL) - download first
+                            import urllib.request
+                            tmp_dir = Path(".tmp/composed_videos")
+                            tmp_dir.mkdir(parents=True, exist_ok=True)
+                            local_path = tmp_dir / f"download_{job_id}.mp4"
+                            add_video_generation_log(job_id, "Downloading video from remote URL...")
+                            urllib.request.urlretrieve(video_path, str(local_path))
+                        else:
                             local_path = Path(video_path)
-                            if local_path.exists():
-                                cloud_url = upload_video_to_drive(local_path, drive_service, auto_delete_days=30)
-                                if cloud_url:
-                                    final_video_url = cloud_url
-                                    local_path.unlink(missing_ok=True)
-                                    add_video_generation_log(job_id, "Video uploaded to Drive (30-day auto-delete)")
-                    except Exception as upload_err:
-                        add_video_generation_log(job_id, f"Drive upload error: {upload_err}")
-                        logger.warning(f"[Auto] Failed to upload video to Drive: {upload_err}")
+
+                        if local_path.exists():
+                            cloud_url = upload_video_to_drive(local_path, drive_service, auto_delete_days=30)
+                            if cloud_url:
+                                final_video_url = cloud_url
+                                local_path.unlink(missing_ok=True)
+                                add_video_generation_log(job_id, "Video uploaded to Drive (30-day auto-delete)")
+                            else:
+                                add_video_generation_log(job_id, "Drive upload failed, keeping original URL")
+                        else:
+                            add_video_generation_log(job_id, f"Local video not found: {video_path}")
+                    else:
+                        add_video_generation_log(job_id, "Google Drive service unavailable")
+                except Exception as upload_err:
+                    add_video_generation_log(job_id, f"Drive upload error: {upload_err}")
+                    logger.warning(f"[Auto] Failed to upload video to Drive: {upload_err}")
 
                 add_video_generation_log(job_id, "Video generated successfully!")
                 update_video_generation_status(job_id, status="completed", stage="done", video_url=final_video_url)
                 update_job_in_sheet(job_id, {"video_url": final_video_url})
 
-                # Insert video link into cover letter if it's a cloud URL
-                if final_video_url.startswith('http'):
+                # Insert video link into cover letter if it's a permanent Drive URL
+                if 'drive.google.com' in final_video_url:
                     try:
                         job_data_fresh = get_job_from_sheet(job_id)
                         if job_data_fresh and job_data_fresh.get('proposal_text'):
@@ -1975,6 +1999,8 @@ def run_video_generation_and_maybe_submit(job_id: str, job_data: dict, auto_subm
                                 job_data['proposal_text'] = updated_proposal
                     except Exception as e:
                         logger.warning(f"[Auto] Failed to update cover letter with video link: {e}")
+                elif final_video_url.startswith('http'):
+                    add_video_generation_log(job_id, f"Skipping cover letter insert - not a permanent URL")
 
                 logger.info(f"[Auto] Video generated for job {job_id}: {final_video_url}")
 
@@ -2640,9 +2666,11 @@ async def api_process_jobs(
                 PIPELINE_STATUS["is_running"] = False
                 return
 
+            seen_job_ids = set()
             for row in all_data:
                 row_job_id = normalize_job_id(row.get('job_id', ''))
-                if row_job_id in requested_ids:
+                if row_job_id in requested_ids and row_job_id not in seen_job_ids:
+                    seen_job_ids.add(row_job_id)
                     jobs_to_process.append({
                         'job_id': row_job_id,
                         'url': row.get('url', ''),

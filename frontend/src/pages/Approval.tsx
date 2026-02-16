@@ -245,6 +245,8 @@ export function Approval() {
 
   const insertVideoLink = (videoUrl: string) => {
     if (!videoUrl) return;
+    // Only insert permanent URLs (Google Drive) - never temporary HeyGen or local paths
+    if (!videoUrl.includes('drive.google.com')) return;
 
     // Find the end of the first paragraph (first double newline or after ~200 chars)
     const firstParagraphEnd = approvedJobProposal.indexOf('\n\n');
@@ -673,9 +675,9 @@ export function Approval() {
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => videoStatus?.video_url && insertVideoLink(videoStatus.video_url)}
-                              disabled={!isVideoReady || !videoStatus?.video_url}
+                              disabled={!isVideoReady || !videoStatus?.video_url || !videoStatus.video_url.includes('drive.google.com')}
                               className="px-3 py-1 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                              title={!isVideoReady ? 'Video not ready yet' : 'Insert video link into cover letter'}
+                              title={!isVideoReady ? 'Video not ready yet' : !videoStatus?.video_url?.includes('drive.google.com') ? 'Waiting for permanent Drive URL...' : 'Insert video link into cover letter'}
                             >
                               Insert Video Link
                             </button>
