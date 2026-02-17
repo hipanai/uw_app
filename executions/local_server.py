@@ -2173,6 +2173,7 @@ SUBMISSION_MODES = {
 
 # Define config items with metadata
 CONFIG_ITEMS = [
+    {"key": "APIFY_SCRAPER", "label": "Apify Scraper", "sensitive": False, "editable": True, "description": "Which Apify actor to use for scraping: neatrat or flash_mage", "options": ["neatrat", "flash_mage"]},
     {"key": "SUBMISSION_MODE", "label": "Submission Mode", "sensitive": False, "editable": True, "description": "Workflow mode: manual, semi_auto, or automatic", "options": ["manual", "semi_auto", "automatic"]},
     {"key": "UPWORK_PIPELINE_SHEET_ID", "label": "Pipeline Sheet ID", "sensitive": False, "editable": True, "description": "Google Sheet ID for job pipeline"},
     {"key": "UPWORK_PROCESSED_IDS_SHEET_ID", "label": "Processed IDs Sheet ID", "sensitive": False, "editable": True, "description": "Google Sheet ID for deduplication"},
@@ -2277,7 +2278,7 @@ async def api_get_config(user: dict = Depends(get_current_user)):
         else:
             display_value = raw_value or "(not set)"
 
-        config_items.append({
+        entry = {
             "key": key,
             "label": item["label"],
             "value": display_value,
@@ -2285,8 +2286,11 @@ async def api_get_config(user: dict = Depends(get_current_user)):
             "sensitive": item["sensitive"],
             "editable": item["editable"],
             "description": item["description"],
-            "is_set": bool(raw_value)
-        })
+            "is_set": bool(raw_value),
+        }
+        if "options" in item:
+            entry["options"] = item["options"]
+        config_items.append(entry)
 
     return {"config": config_items}
 

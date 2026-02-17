@@ -110,6 +110,7 @@ export interface ConfigItem {
   editable: boolean;
   description: string;
   is_set: boolean;
+  options?: string[];
 }
 
 export interface ConfigResponse {

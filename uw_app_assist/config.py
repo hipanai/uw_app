@@ -36,4 +36,8 @@ UPWORK_PROXY_GROUP = _optional("UPWORK_PROXY_GROUP", "StaticUS3")
 
 # Actor IDs
 FLASH_MAGE_ACTOR_ID = "flash_mage/upwork"
+NEATRAT_ACTOR_ID = "neatrat/upwork-job-scraper"
 BIGBRAIN_ACTOR_ID = "big-brain.io/upwork-application"
+
+# Active scraper: "neatrat" or "flash_mage"
+ACTIVE_SCRAPER = _optional("APIFY_SCRAPER", "neatrat")

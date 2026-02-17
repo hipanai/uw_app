@@ -1100,14 +1100,27 @@ export function Admin() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mb-2">{item.description}</p>
-                  <input
-                    type={item.sensitive ? 'password' : 'text'}
-                    value={editedConfig[item.key] || ''}
-                    onChange={(e) => handleConfigChange(item.key, e.target.value)}
-                    disabled={!item.editable}
-                    placeholder={item.sensitive ? '••••••••' : '(not set)'}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm disabled:bg-gray-50 disabled:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  {item.options && item.options.length > 0 ? (
+                    <select
+                      value={editedConfig[item.key] || ''}
+                      onChange={(e) => handleConfigChange(item.key, e.target.value)}
+                      disabled={!item.editable}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-50 disabled:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    >
+                      {item.options.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={item.sensitive ? 'password' : 'text'}
+                      value={editedConfig[item.key] || ''}
+                      onChange={(e) => handleConfigChange(item.key, e.target.value)}
+                      disabled={!item.editable}
+                      placeholder={item.sensitive ? '••••••••' : '(not set)'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm disabled:bg-gray-50 disabled:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  )}
                   <p className="text-xs text-gray-400 mt-1 font-mono">{item.key}</p>
                 </div>
               ))}
