@@ -2368,71 +2368,66 @@ def _execute_pipeline(request: PipelineTriggerRequest, run_id: str):
     jobs_added = 0
 
     try:
-        # Handle URL imports specially - need to scrape job details first
+        # Handle URL imports — use neatrat rawUrl to scrape search results
         if request.source == "urls" and request.job_urls:
-            logger.info(f"Processing {len(request.job_urls)} URLs...")
+            logger.info(f"Processing {len(request.job_urls)} URLs via neatrat rawUrl...")
 
-            # Clean and validate URLs
-            valid_urls = []
+            # Take the first URL (rawUrl accepts one search URL)
+            raw_url = None
             for url in request.job_urls:
                 url = url.strip()
-                if not url:
-                    continue
-                # Normalize URL format
-                if "/jobs/~" in url or "~" in url:
-                    valid_urls.append(url)
-                else:
-                    logger.warning(f"Invalid Upwork URL: {url}")
+                if url and "upwork.com" in url:
+                    raw_url = url
+                    break
 
-            if not valid_urls:
-                logger.error("No valid job URLs found")
+            if not raw_url:
+                logger.error("No valid Upwork URL provided")
                 PIPELINE_STATUS["last_run_status"] = "error"
                 PIPELINE_STATUS["is_running"] = False
                 return
 
-            # Import jobs from URLs — Upwork blocks all automated scraping
-            # (Cloudflare 403 on HTTP, cloudscraper, Playwright, and Apify cloud browsers)
-            # so we import with URL/ID and let the full pipeline's deep extractor handle details.
-            logger.info(f"Importing {len(valid_urls)} job URLs...")
-            jobs = []
+            # Scrape via neatrat with rawUrl
+            from uw_app_assist.apify_runner import run_actor
+            from uw_app_assist.config import APIFY_API_TOKEN, NEATRAT_ACTOR_ID
+            from uw_app_assist.scraper.neatrat_field_mapper import format_neatrat_job
 
-            for url in valid_urls:
-                job_id = None
-                if "/jobs/~" in url:
-                    job_id = url.split("/jobs/~")[-1].split("?")[0].split("/")[0]
-                elif "~" in url:
-                    m = re.search(r'~(\d+)', url)
-                    job_id = m.group(1) if m else None
+            input_data = {
+                "rawUrl": raw_url,
+                "perPage": min(request.limit, 50),
+                "pagesToScrape": max(1, (request.limit + 49) // 50),
+                "sort": "newest",
+            }
+            logger.info(f"Running neatrat with rawUrl: {raw_url}")
 
-                if job_id:
-                    canonical_url = f"https://www.upwork.com/jobs/~{job_id}"
-                    jobs.append({
-                        "job_id": job_id,
-                        "url": canonical_url,
-                        "title": f"Upwork Job ~{job_id[:8]}... (run full pipeline to extract details)",
-                        "description": "Job imported from URL. Use 'Run Full Pipeline' or select and 'Process' to extract title, description, budget, and other details.",
-                        "source": "url_import",
-                        "status": "new",
-                    })
-                    logger.info(f"Imported job URL: {canonical_url}")
-                else:
-                    logger.warning(f"Could not extract job ID from URL: {url}")
+            try:
+                raw_items = run_actor(
+                    actor_id=NEATRAT_ACTOR_ID,
+                    input_data=input_data,
+                    token=APIFY_API_TOKEN,
+                )
+                logger.info(f"neatrat returned {len(raw_items)} jobs from rawUrl")
+            except Exception as e:
+                logger.error(f"neatrat rawUrl scrape failed: {e}")
+                PIPELINE_STATUS["last_run_status"] = "error"
+                PIPELINE_STATUS["is_running"] = False
+                return
+
+            jobs = [format_neatrat_job(item) for item in raw_items][:request.limit]
 
             if not jobs:
-                logger.error("No valid job URLs found")
+                logger.error("neatrat returned no jobs for this URL")
                 PIPELINE_STATUS["last_run_status"] = "error"
                 PIPELINE_STATUS["is_running"] = False
                 return
 
-            # Save jobs to file
             url_jobs_file = output_file.parent / "url_import_jobs.json"
             with open(url_jobs_file, 'w') as f:
                 json.dump(jobs, f, indent=2)
-            logger.info(f"Created {len(jobs)} job records from URLs")
+            logger.info(f"Scraped {len(jobs)} jobs from URL")
 
             if request.run_full_pipeline:
                 # Run orchestrator with manual source
-                logger.info("Running FULL pipeline with URL-imported jobs...")
+                logger.info("Running FULL pipeline with neatrat-scraped jobs...")
                 cmd = [
                     sys.executable, "executions/upwork_pipeline_orchestrator.py",
                     "--source", "manual",

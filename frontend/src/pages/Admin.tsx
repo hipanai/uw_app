@@ -847,7 +847,7 @@ export function Admin() {
                 >
                   <option value="apify">Apify (Scrape New Jobs)</option>
                   <option value="gmail">Gmail (Process Alerts)</option>
-                  <option value="urls">URLs (Direct Job Links)</option>
+                  <option value="urls">URL (Upwork Search URL)</option>
                 </select>
               </div>
               <div>
@@ -977,17 +977,17 @@ export function Admin() {
             {triggerSource === 'urls' && (
               <div className="mt-4">
                 <label className="block text-sm text-gray-500 dark:text-gray-400 mb-1">
-                  Job URLs <span className="text-gray-400">(one per line)</span>
+                  Upwork Search URL
                 </label>
                 <textarea
                   value={jobUrls}
                   onChange={(e) => setJobUrls(e.target.value)}
-                  placeholder="https://www.upwork.com/jobs/~01234567890123456789&#10;https://www.upwork.com/jobs/~09876543210987654321"
-                  rows={5}
+                  placeholder="https://www.upwork.com/nx/search/jobs/?q=python+developer&sort=recency"
+                  rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Paste Upwork job URLs, one per line. They will be fetched and added to the pipeline.
+                  Paste an Upwork search URL. Jobs will be scraped via neatrat and added to the pipeline.
                 </p>
               </div>
             )}
